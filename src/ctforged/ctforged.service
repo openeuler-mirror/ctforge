@@ -1,0 +1,14 @@
+[Unit]
+Description=CTyunOS CTForge service
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/sbin/ctforged
+Restart=always
+RestartSec=10
+ExecReload=/bin/true
+
+[Install]
+WantedBy=multi-user.target
