@@ -1,0 +1,7 @@
+vmlinux.h
+*.so
+*.ko
+*skel.h
+ctforge_*
+*.h.tmp
+*.o.tmp
