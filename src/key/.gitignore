@@ -1,0 +1,4 @@
+*.pem
+*.h
+*.ko
+user_sm2_test
