@@ -1,0 +1,100 @@
+# ============================================================
+# CTForge 仓库忽略规则
+# 原则：只跟踪源代码与文档；产物/依赖/证书/二进制一律不入库
+# 例外：doc/ 下的图片允许入库
+# ============================================================
+
+# ---- 依赖 ----
+node_modules/
+**/node_modules/
+
+# ---- 构建产物 ----
+src/frontend/dist/
+src/frontend/dist-ssr/
+src/frontend/.vite/
+src/frontend/*.tsbuildinfo
+src/server/bin/
+src/server/server
+src/clients/ctforge-agent
+src/clients/ctforge-agent-*
+src/clients/src/*.o
+src/clients/src/*.a
+src/clients/*.o
+src/ctforged/*.o
+src/ctforged/ctforged
+src/ctforged/ctforgectl
+src/ctforgectl/*.o
+src/ctforgectl/ctforgectl
+src/key/*.o
+src/key/kern_sm2_test
+src/key/user_sm2_test
+src/payload/*.o
+src/payload/*.ko
+
+# ---- TLS 证书与密钥（部署时自动生成）----
+*.crt
+*.key
+*.pem
+*.p12
+
+# ---- 运行期数据（服务端 -data 目录生成）----
+# 注意：不用通配 *.json，避免误伤 package.json / 语言包 / 配置示例
+/accounts.json
+/approvals.json
+/approvals.json.uninstall
+/tasks.json
+/rules.json
+/history.json
+/perms.json
+/ai.json
+/server_id
+**/accounts.json
+**/approvals.json
+**/approvals.json.uninstall
+**/tasks.json
+**/rules.json
+**/history.json
+**/perms.json
+**/ai.json
+**/server_id
+
+# ---- 临时、缓存、日志 ----
+*.tmp
+*.bak
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+*.log
+nohup.out
+*.pid
+.cache/
+.eslintcache
+.stylelintcache
+.parcel-cache/
+
+# ---- 测试输出 ----
+coverage/
+*.test.out
+
+# ---- IDE ----
+.idea/
+.vscode/
+*.iml
+
+# ---- 打包 ---- 
+*.tar.gz
+*.tgz
+dist.zip
+
+# ---- 本地环境覆盖（保留 .env 示例文件）----
+.env.local
+.env.*.local
+
+# ---- 明确保留：文档图片可入库 ----
+!doc/**/*.png
+!doc/**/*.jpg
+!doc/**/*.jpeg
+!doc/**/*.svg
+!doc/**/*.gif
