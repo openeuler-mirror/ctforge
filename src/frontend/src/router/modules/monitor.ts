@@ -1,0 +1,269 @@
+import {
+  AppIcon,
+  CheckCircleIcon,
+  MailIcon,
+  SecuredIcon,
+  UserCircleIcon,
+  ChartBarIcon,
+  ChartRingIcon,
+  CloudIcon,
+  CodeIcon,
+  ControlPlatformIcon,
+  CpuIcon,
+  DashboardIcon,
+  DesktopIcon,
+  FileIcon,
+  FolderOpenIcon,
+  InternetIcon,
+  LinkIcon,
+  LockOnIcon,
+  NotificationIcon,
+  RootListIcon,
+  ServerIcon,
+  SettingIcon,
+  TaskIcon,
+  TerminalIcon,
+  ToolsIcon,
+  UsergroupIcon,
+  UserIcon,
+} from 'tdesign-icons-vue-next';
+import { shallowRef } from 'vue';
+import type { RouteRecordRaw } from 'vue-router';
+
+import { LAYOUT } from '@/utils/route/constant';
+
+export default [
+  {
+    path: '/monitor',
+    component: LAYOUT,
+    redirect: '/monitor/agents',
+    name: 'monitor',
+    meta: {
+      title: { zh_CN: '主机监控', en_US: 'Monitor' },
+      icon: shallowRef(DashboardIcon),
+      orderNo: 1,
+    },
+    children: [
+      {
+        path: 'agents',
+        name: 'AgentList',
+        component: () => import('@/pages/monitor/agents/index.vue'),
+        meta: { title: { zh_CN: '主机列表', en_US: 'Agents'}, perm: 'agent.view', icon: shallowRef(ServerIcon) },
+      },
+      {
+        path: 'overview',
+        name: 'AgentOverview',
+        component: () => import('@/pages/monitor/overview/index.vue'),
+        meta: { title: { zh_CN: '主机总览', en_US: 'Overview'}, perm: 'agent.view', icon: shallowRef(ControlPlatformIcon) },
+      },
+      {
+        path: 'detail',
+        name: 'AgentDetail',
+        component: () => import('@/pages/monitor/detail/index.vue'),
+        meta: { title: { zh_CN: '监控详情', en_US: 'Agent Detail' }, hidden: true },
+      },
+      {
+        path: 'hardware',
+        name: 'AgentHardware',
+        component: () => import('@/pages/monitor/hardware/index.vue'),
+        meta: { title: { zh_CN: '硬件信息', en_US: 'Hardware'}, perm: 'agent.view', icon: shallowRef(CpuIcon) },
+      },
+      {
+        path: 'network',
+        name: 'AgentNetwork',
+        component: () => import('@/pages/monitor/network/index.vue'),
+        meta: { title: { zh_CN: '网络监控', en_US: 'Network'}, perm: 'agent.view', icon: shallowRef(InternetIcon) },
+      },
+      {
+        path: 'logs',
+        name: 'AgentLogs',
+        component: () => import('@/pages/monitor/logs/index.vue'),
+        meta: { title: { zh_CN: '日志分析', en_US: 'Logs'}, perm: 'agent.logs', icon: shallowRef(ChartRingIcon) },
+      },
+      {
+        path: 'syslog',
+        name: 'AgentSysLog',
+        component: () => import('@/pages/monitor/syslog/index.vue'),
+        meta: { title: { zh_CN: '系统日志', en_US: 'Syslog'}, perm: 'agent.syslog', icon: shallowRef(RootListIcon) },
+      },
+    ],
+  },
+  {
+    path: '/ops',
+    component: LAYOUT,
+    redirect: '/ops/terminal',
+    name: 'ops',
+    meta: {
+      title: { zh_CN: '运维操作', en_US: 'Operations' },
+      icon: shallowRef(ToolsIcon),
+      orderNo: 2,
+    },
+    children: [
+      {
+        path: 'terminal',
+        name: 'AgentTerminal',
+        component: () => import('@/pages/monitor/terminal/index.vue'),
+        meta: { title: { zh_CN: '远程终端', en_US: 'Terminal'}, perm: 'agent.terminal', icon: shallowRef(TerminalIcon) },
+      },
+      {
+        path: 'files',
+        name: 'AgentFiles',
+        component: () => import('@/pages/monitor/files/index.vue'),
+        meta: { title: { zh_CN: '文件管理', en_US: 'Files'}, perm: 'agent.file.view', icon: shallowRef(FolderOpenIcon) },
+      },
+      {
+        path: 'services',
+        name: 'AgentServices',
+        component: () => import('@/pages/monitor/services/index.vue'),
+        meta: { title: { zh_CN: '系统服务', en_US: 'Services'}, perm: 'agent.service', icon: shallowRef(DesktopIcon) },
+      },
+      {
+        path: 'packages',
+        name: 'AgentPackages',
+        component: () => import('@/pages/monitor/packages/index.vue'),
+        meta: { title: { zh_CN: '软件包更新', en_US: 'Packages'}, perm: 'agent.pkg', icon: shallowRef(AppIcon) },
+      },
+      {
+        path: 'docker',
+        name: 'DockerManage',
+        component: () => import('@/pages/monitor/docker/index.vue'),
+        meta: { title: { zh_CN: 'Docker 管理', en_US: 'Docker'}, perm: 'agent.view', icon: shallowRef(AppIcon) },
+      },
+      {
+        path: 'portfwd',
+        name: 'PortForward',
+        component: () => import('@/pages/monitor/portfwd/index.vue'),
+        meta: { title: { zh_CN: '端口转发', en_US: 'Port Forward'}, perm: 'agent.portfwd', icon: shallowRef(LinkIcon) },
+      },
+      {
+        path: 'sysusers',
+        name: 'AgentSysUsers',
+        component: () => import('@/pages/monitor/sysusers/index.vue'),
+        meta: {
+          title: { zh_CN: '系统账户', en_US: 'System Users'}, perm: 'agent.sysuser',
+          icon: shallowRef(UserIcon),
+          roles: ['admin'],
+        },
+      },
+      {
+        path: 'exec',
+        name: 'AgentExec',
+        component: () => import('@/pages/monitor/exec/index.vue'),
+        meta: { title: { zh_CN: '命令执行', en_US: 'Exec'}, perm: 'agent.cmd.exec', icon: shallowRef(CodeIcon) },
+      },
+      {
+        path: 'config',
+        name: 'AgentConfig',
+        component: () => import('@/pages/monitor/config/index.vue'),
+        meta: { title: { zh_CN: '客户端配置', en_US: 'Config'}, perm: 'agent.file.edit', icon: shallowRef(SettingIcon) },
+      },
+    ],
+  },
+  {
+    path: '/security',
+    component: LAYOUT,
+    redirect: '/security/audit',
+    name: 'security',
+    meta: {
+      title: { zh_CN: '安全与管理', en_US: 'Security' },
+      icon: shallowRef(LockOnIcon),
+      orderNo: 3,
+    },
+    children: [
+      {
+        path: 'audit',
+        name: 'SecurityAudit',
+        component: () => import('@/pages/monitor/security/index.vue'),
+        meta: { title: { zh_CN: '安全审计', en_US: 'Audit'}, perm: 'agent.security', icon: shallowRef(SecuredIcon) },
+      },
+      {
+        path: 'alerts',
+        name: 'Alerts',
+        component: () => import('@/pages/system/alerts/index.vue'),
+        meta: { title: { zh_CN: '告警中心', en_US: 'Alerts'}, perm: 'system.alert', icon: shallowRef(MailIcon) },
+      },
+      {
+        path: 'tasks',
+        name: 'ScheduledTasks',
+        component: () => import('@/pages/system/tasks/index.vue'),
+        meta: {
+          title: { zh_CN: '定时任务', en_US: 'Tasks'}, perm: 'system.task',
+          icon: shallowRef(TaskIcon),
+          roles: ['admin', 'operator'],
+        },
+      },
+      {
+        path: 'stats',
+        name: 'Stats',
+        component: () => import('@/pages/system/stats/index.vue'),
+        meta: { title: { zh_CN: '统计视图', en_US: 'Stats'}, perm: 'system.stats', icon: shallowRef(ChartBarIcon) },
+      },
+      {
+        path: 'topology',
+        name: 'Topology',
+        component: () => import('@/pages/system/topology/index.vue'),
+        meta: { title: { zh_CN: '网络拓扑', en_US: 'Topology'}, perm: 'system.topology', icon: shallowRef(CloudIcon) },
+      },
+      {
+        path: 'approvals',
+        name: 'Approvals',
+        component: () => import('@/pages/system/approvals/index.vue'),
+        meta: {
+          title: { zh_CN: '批准管理', en_US: 'Approvals'}, perm: 'system.approval',
+          icon: shallowRef(CheckCircleIcon),
+          roles: ['admin', 'operator'],
+        },
+      },
+      {
+        path: 'settings',
+        name: 'SystemSettings',
+        component: () => import('@/pages/system/settings/index.vue'),
+        meta: {
+          title: { zh_CN: '系统设置', en_US: 'Settings'}, perm: 'system.all',
+          icon: shallowRef(SettingIcon),
+          roles: ['admin'],
+        },
+      },
+      {
+        path: 'groups',
+        name: 'Groups',
+        component: () => import('@/pages/system/groups/index.vue'),
+        meta: {
+          title: { zh_CN: '分组与授权', en_US: 'Groups'}, perm: 'system.group',
+          icon: shallowRef(UsergroupIcon),
+          roles: ['admin'],
+        },
+      },
+      {
+        path: 'accounts',
+        name: 'AccountManage',
+        component: () => import('@/pages/system/accounts/index.vue'),
+        meta: {
+          title: { zh_CN: '账户管理', en_US: 'Accounts'}, perm: 'system.accounts',
+          icon: shallowRef(UserCircleIcon),
+          roles: ['admin'],
+        },
+      },
+      {
+        path: 'notify',
+        name: 'NotifyConfig',
+        component: () => import('@/pages/system/notify/index.vue'),
+        meta: {
+          title: { zh_CN: '通知配置', en_US: 'Notify'}, perm: 'system.notify',
+          icon: shallowRef(NotificationIcon),
+          roles: ['admin'],
+        },
+      },
+      {
+        path: 'auditlog',
+        name: 'AuditLog',
+        component: () => import('@/pages/system/auditlog/index.vue'),
+        meta: {
+          title: { zh_CN: '操作审计', en_US: 'Audit Log'}, perm: 'system.audit',
+          icon: shallowRef(FileIcon),
+          roles: ['admin'],
+        },
+      },
+    ],
+  },
+] satisfies RouteRecordRaw[];
