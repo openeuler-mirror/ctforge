@@ -1,0 +1,34 @@
+# ctforge agent 配置示例
+# 拷贝为 /etc/ctforge-agent.conf 并按需修改
+
+# 服务端地址与端口
+server_host=127.0.0.1
+server_port=9000
+
+# 本机标识（默认为主机名）
+#agent_id=my-host
+#name=my-host
+
+# 注册 token（需与服务端 -token 一致）
+#token=
+
+# ---- TLS 传输加密 ----
+# 1=TLS 加密连接（默认），0=明文（仅联调）
+use_tls=1
+# 服务端证书 SHA-256 指纹（服务端启动日志里会打印）
+# 配置后做证书 pinning，防中间人；留空则仅加密不校验身份
+#server_fingerprint=
+# 1=完全不校验证书（不推荐，仅应急）
+tls_skip_verify=0
+
+# ---- 局域网发现 ----
+# 1=开启 UDP 广播（默认），服务端控制台可见"待接入"主机
+discover_enable=1
+discover_port=9001
+
+# 采集周期（秒）
+metrics_interval=30
+heartbeat_interval=10
+
+# 日志级别 0=debug 1=info 2=warn 3=error
+log_level=1
