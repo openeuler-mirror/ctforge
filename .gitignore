@@ -98,3 +98,9 @@ dist.zip
 !doc/**/*.jpeg
 !doc/**/*.svg
 !doc/**/*.gif
+
+# ---- SSH 跳板主机密钥（运行时生成）----
+**/ssh_host_rsa_key
+**/ssh_host_rsa_key.pub
+**/ssh_host_*_key
+**/ssh_host_*_key.pub
