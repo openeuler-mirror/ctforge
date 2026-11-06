@@ -55,11 +55,18 @@ set -e
 
 echo "==> CTForge Agent Installer"
 
-# ---- 参数解析：--ctforged-only 单独安装 ctforged（跳过 agent 安装与幂等检测） ----
+# ---- 参数解析 ----
+# --ctforged-only：单独安装 ctforged（跳过 agent 安装与幂等检测）
+# --force-agent：强制重装 agent 二进制（更新旧版，不受幂等限制）
 CTFD_ONLY=0
+FORCE_AGENT=0
 for arg in "$@"; do
     [ "$arg" = "--ctforged-only" ] && CTFD_ONLY=1
+    [ "$arg" = "--force-agent" ] && FORCE_AGENT=1
 done
+
+# --force-agent 等效于 CTF_FORCE=1
+[ "$FORCE_AGENT" = "1" ] && export CTF_FORCE=1
 
 # ---- 权限检查 ----
 if [ "$(id -u)" != "0" ]; then
@@ -68,14 +75,13 @@ if [ "$(id -u)" != "0" ]; then
     exit 1
 fi
 
-# ---- 幂等检测：已在运行则跳过（避免重复安装/重复进程）----
-if [ "${CTF_FORCE:-0}" != "1" ]; then
+# ---- 幂等检测：已在运行则跳过（--ctforged-only 模式跳过此检测）----
+if [ "$CTFD_ONLY" != "1" ] && [ "${CTF_FORCE:-0}" != "1" ]; then
     if [ -f /etc/ctforge/agent.conf ] && grep -q '^server_host=' /etc/ctforge/agent.conf 2>/dev/null; then
         for b in /usr/local/bin/ctforge-agent /usr/bin/ctforge-agent /bin/ctforge-agent /opt/bin/ctforge-agent; do
             if [ -x "$b" ]; then
                 echo "==> 已检测到 CTForge Agent：$b"
                 echo "    配置：/etc/ctforge/agent.conf"
-                # 尝试确保服务在运行
                 if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
                     systemctl is-active ctforge-agent >/dev/null 2>&1 || systemctl restart ctforge-agent >/dev/null 2>&1 || true
                 elif [ -x /etc/init.d/ctforge-agent ]; then
