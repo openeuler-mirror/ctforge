@@ -82,7 +82,7 @@ func (s *Sender) sendEmail(ch *Channel, msg *Message) error {
 	if from == "" {
 		from = ch.Username
 	}
-	subject := fmt.Sprintf("[ctforge][%s] %s", strings.ToUpper(msg.Level), msg.Title)
+	subject := fmt.Sprintf("[CTForge][%s] %s", strings.ToUpper(msg.Level), msg.Title)
 	body := fmt.Sprintf("From: %s\r\nTo: %s\r\nSubject: %s\r\nMIME-Version: 1.0\r\n"+
 		"Content-Type: text/html; charset=UTF-8\r\n\r\n%s",
 		from, strings.Join(ch.To, ","), encodeHeader(subject), htmlBody(msg))

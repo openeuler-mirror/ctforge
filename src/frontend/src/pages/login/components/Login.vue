@@ -4,7 +4,7 @@
 
     <div class="login-container">
       <div class="title-container">
-        <h1 class="title margin-no">ctforge</h1>
+        <h1 class="title margin-no">CTForge</h1>
         <h1 class="title">主机监控与运维平台</h1>
         <div class="sub-title">
           <p class="tip">使用管理员账户登录</p>
@@ -51,7 +51,7 @@
       </div>
     </div>
 
-    <footer class="copyright">ctforge · Linux 主机集中监控与运维</footer>
+    <footer class="copyright">CTForge · Linux 主机集中监控与运维</footer>
   </div>
 </template>
 

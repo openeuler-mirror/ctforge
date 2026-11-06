@@ -47,7 +47,7 @@ func GenScript(p *ScriptParams) string {
 # 要求：root 或 sudo
 set -e
 
-echo "==> ctforge Agent Installer"
+echo "==> CTForge Agent Installer"
 
 # ---- 权限检查 ----
 if [ "$(id -u)" != "0" ]; then
@@ -61,7 +61,7 @@ if [ "${CTF_FORCE:-0}" != "1" ]; then
     if [ -f /etc/ctforge/agent.conf ] && grep -q '^server_host=' /etc/ctforge/agent.conf 2>/dev/null; then
         for b in /usr/local/bin/ctforge-agent /usr/bin/ctforge-agent /bin/ctforge-agent /opt/bin/ctforge-agent; do
             if [ -x "$b" ]; then
-                echo "==> 已检测到 ctforge Agent：$b"
+                echo "==> 已检测到 CTForge Agent：$b"
                 echo "    配置：/etc/ctforge/agent.conf"
                 # 尝试确保服务在运行
                 if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
