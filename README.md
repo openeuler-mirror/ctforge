@@ -1,6 +1,6 @@
 # CTForge
 
-CTForge 是一个基于 eBPF 的 Linux 安全框架，提供非侵入式动态防护与集中化控制能力。本项目由 ctforge（eBPF 内核防护）与 ctforge（主机监控与运维）合并而成，保留 eBPF payload 动态加载、SM2 签名等原有能力，同时集成 Web 控制台、远程终端、文件管理、告警通知等完整运维功能。
+CTForge 是一个基于 eBPF 的 Linux 安全框架，提供非侵入式动态防护与集中化控制能力。项目保留 eBPF payload 动态加载、SM2 签名等核心能力，同时集成 Web 控制台、远程终端、文件管理、告警通知等完整运维功能。
 
 ## 功能特性
 
@@ -62,13 +62,13 @@ src/
 └── scripts/     # systemd service
 ```
 
-## 合并说明
+## 项目说明
 
-本项目由 **ctforge**（eBPF 安全框架）与 **ctforge**（主机监控运维系统）合并而成：
+CTForge 各组件职责：
 
-- **服务端、前端**：完全来源于 ctforge，重命名为 ctforge
-- **客户端**：ctforge-agent 重命名为 ctforge-agent，新增 `ctforge.c` 桥接模块
-- **eBPF 组件**：ctforge 原有 ctforged/ctforgectl/payload 完整保留
+- **服务端、前端**：基于 Go + Vue3 构建，提供 REST API、WebSocket、SSH 跳板
+- **客户端**：`ctforge-agent` C 语言代理，新增 `ctforge.c` 桥接模块
+- **eBPF 组件**：`ctforged`/`ctforgectl`/`payload` 完整保留
 - **新增集成**：Web 控制台可直接管理 eBPF payload 模块
 
 合并过程产生 130+ 个 commit，详细变更记录见 `git log`。
