@@ -116,6 +116,7 @@ import {
   ctforgeModCmd,
 } from '@/api/ctforge';
 import { http } from '@/api/agent';
+import type { PrimaryTableCol } from 'tdesign-vue-next';
 
 // ---------- 状态 ----------
 const currentAgent = ref('');
@@ -137,7 +138,7 @@ const acting = ref(false);
 const cmdResult = ref('');
 
 // ---------- 模块列表列定义 ----------
-const moduleColumns = [
+const moduleColumns: PrimaryTableCol[] = [
   { colKey: 'row-select', type: 'single', width: 50 },
   { title: '模块名', colKey: 'name', ellipsis: true },
   { title: '描述', colKey: 'desc', ellipsis: true },
