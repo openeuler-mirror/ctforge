@@ -469,6 +469,37 @@ static void handle_command(int fd, const ctc_message *msg, ctc_config *cfg, cons
         } else {
             result = strdup("{\"error\":\"bad payload\"}");
         }
+    } else if (!strcmp(t, MSG_CTF_LSMOD)) {
+        result = ctc_ctforge_exec("lsmod", "");
+    } else if (!strcmp(t, MSG_CTF_INSMOD)) {
+        char modname[256] = "";
+        if (msg->payload &&
+            ctc_json_get_string(msg->payload, "module", modname, sizeof(modname))) {
+            result = ctc_ctforge_exec("insmod", modname);
+        } else {
+            result = strdup("{\"error\":\"module name required\"}");
+        }
+    } else if (!strcmp(t, MSG_CTF_RMMOD)) {
+        char modname[256] = "";
+        if (msg->payload &&
+            ctc_json_get_string(msg->payload, "module", modname, sizeof(modname))) {
+            result = ctc_ctforge_exec("rmmod", modname);
+        } else {
+            result = strdup("{\"error\":\"module name required\"}");
+        }
+    } else if (!strcmp(t, MSG_CTF_MOD)) {
+        char modname[256] = "", subcmd[512] = "";
+        if (msg->payload &&
+            ctc_json_get_string(msg->payload, "module", modname, sizeof(modname))) {
+            ctc_json_get_string(msg->payload, "subcmd", subcmd, sizeof(subcmd));
+            char combined[768];
+            snprintf(combined, sizeof(combined), "%s %s", modname, subcmd);
+            result = ctc_ctforge_exec("mod", combined);
+        } else {
+            result = strdup("{\"error\":\"module name required\"}");
+        }
+    } else if (!strcmp(t, MSG_CTF_STATUS)) {
+        result = ctc_ctforge_exec("status", "");
     }
 
     if (result) {
