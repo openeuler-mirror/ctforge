@@ -47,7 +47,10 @@ func GenScript(p *ScriptParams) string {
 	if len(p.ServerIPs) > 0 {
 		serverHosts = strings.Join(p.ServerIPs, ",")
 	}
-	return fmt.Sprintf(`#!/bin/sh
+	// 提前计算 ctforged 下载 URL（替换 /download/agent → /download/ctforged）
+	ctfdURL := strings.Replace(dl, "/download/agent", "/download/ctforged", 1)
+	// 用 Go 字符串替换把 ctfdURL 嵌入到模板中（避免 Sprintf 占位符错位）
+	script := fmt.Sprintf(`#!/bin/sh
 # ctforge agent 一键安装脚本
 # 支持发行版：Fedora/RHEL/CentOS/Debian/Ubuntu/openSUSE/Alpine
 # 要求：root 或 sudo
@@ -75,22 +78,24 @@ if [ "$(id -u)" != "0" ]; then
     exit 1
 fi
 
-# ---- 幂等检测：已在运行则跳过（--ctforged-only 模式跳过此检测）----
-if [ "$CTFD_ONLY" != "1" ] && [ "${CTF_FORCE:-0}" != "1" ]; then
-    if [ -f /etc/ctforge/agent.conf ] && grep -q '^server_host=' /etc/ctforge/agent.conf 2>/dev/null; then
-        for b in /usr/local/bin/ctforge-agent /usr/bin/ctforge-agent /bin/ctforge-agent /opt/bin/ctforge-agent; do
-            if [ -x "$b" ]; then
-                echo "==> 已检测到 CTForge Agent：$b"
-                echo "    配置：/etc/ctforge/agent.conf"
-                if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
-                    systemctl is-active ctforge-agent >/dev/null 2>&1 || systemctl restart ctforge-agent >/dev/null 2>&1 || true
-                elif [ -x /etc/init.d/ctforge-agent ]; then
-                    /etc/init.d/ctforge-agent start >/dev/null 2>&1 || true
+# ---- 幂等检测：已在运行则跳过（--ctforged-only 且无 --force-agent 时跳过此检测）----
+if [ "$CTFD_ONLY" != "1" ] && [ "$FORCE_AGENT" != "1" ]; then
+    if [ "${CTF_FORCE:-0}" != "1" ]; then
+        if [ -f /etc/ctforge/agent.conf ] && grep -q '^server_host=' /etc/ctforge/agent.conf 2>/dev/null; then
+            for b in /usr/local/bin/ctforge-agent /usr/bin/ctforge-agent /bin/ctforge-agent /opt/bin/ctforge-agent; do
+                if [ -x "$b" ]; then
+                    echo "==> 已检测到 CTForge Agent：$b"
+                    echo "    配置：/etc/ctforge/agent.conf"
+                    if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
+                        systemctl is-active ctforge-agent >/dev/null 2>&1 || systemctl restart ctforge-agent >/dev/null 2>&1 || true
+                    elif [ -x /etc/init.d/ctforge-agent ]; then
+                        /etc/init.d/ctforge-agent start >/dev/null 2>&1 || true
+                    fi
+                    echo "==> 跳过安装（幂等）。如需强制重装：sudo CTF_FORCE=1 sh <script>"
+                    exit 0
                 fi
-                echo "==> 跳过安装（幂等）。如需强制重装：sudo CTF_FORCE=1 sh <script>"
-                exit 0
-            fi
-        done
+            done
+        fi
     fi
 fi
 
@@ -106,7 +111,8 @@ esac
 if [ "$CTFD_ONLY" = "1" ]; then
     echo "==> 仅安装 ctforged 模式"
     CTFD_TMPBIN=$(mktemp /tmp/ctforged.XXXXXX)
-    CTFD_URL="$(echo "$HTTP_URL" | sed 's|/download/agent|/download/ctforged|')"
+    # ctforged 下载地址（由服务端生成时硬编码）
+    CTFD_URL="__CTFD_URL__"
     echo "    架构: $BIN_ARCH  地址: $CTFD_URL"
     if command -v curl >/dev/null 2>&1; then
         curl -fsSL -o "$CTFD_TMPBIN" "$CTFD_URL" 2>/dev/null || { echo "错误：ctforged 下载失败"; exit 1; }
@@ -197,7 +203,7 @@ chmod +x "$TMPBIN"
 
 # ---- 下载 ctforged eBPF 守护进程（可选，失败不阻断 agent 安装） ----
 CTFD_TMPBIN=$(mktemp /tmp/ctforged.XXXXXX)
-CTFD_URL="$(echo "$HTTP_URL" | sed 's|/download/agent|/download/ctforged|')"
+CTFD_URL="__CTFD_URL__"
 CTFD_DL_OK=0
 if command -v curl >/dev/null 2>&1; then
     if curl -fsSL -o "$CTFD_TMPBIN" "$CTFD_URL" 2>/dev/null; then
@@ -384,6 +390,8 @@ echo "    日志查看：journalctl -u ctforge-agent -f 或 tail -f /var/log/ctf
 `,
 		dl,
 		serverHosts, port, useTLS, p.Fingerprint, p.RegKey, discPort, p.ServerHost)
+	// 最终替换：把 __CTFD_URL__ 占位符替换为实际 URL
+	return strings.Replace(script, "__CTFD_URL__", ctfdURL, 1)
 }
 
 // GenCurlCommand 生成一行 curl 命令（用户直接粘贴执行）
