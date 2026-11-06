@@ -27,6 +27,7 @@ services:
       CTF_SOCK: ":9000"
       CTF_STATIC: "/app/static"
       CTF_ACCOUNTS: "/var/lib/ctforge/accounts.json"
+      CTF_DATA: "/var/lib/ctforge"
       CTF_TLS_CERT: "/etc/ctforge/server.crt"
       CTF_TLS_KEY: "/etc/ctforge/server.key"
       # 注册令牌：Agent 需配置相同 token 才能接入（留空则不校验）
