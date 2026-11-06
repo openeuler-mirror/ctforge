@@ -122,6 +122,43 @@ fi
 
 chmod +x "$TMPBIN"
 
+# ---- 下载 ctforged eBPF 守护进程（可选，失败不阻断 agent 安装） ----
+CTFD_TMPBIN=$(mktemp /tmp/ctforged.XXXXXX)
+CTFD_URL="$(echo "$HTTP_URL" | sed 's|/download/agent|/download/ctforged|')"
+CTFD_DL_OK=0
+if command -v curl >/dev/null 2>&1; then
+    if curl -fsSL -o "$CTFD_TMPBIN" "$CTFD_URL" 2>/dev/null; then
+        CTFD_DL_OK=1
+    fi
+elif command -v wget >/dev/null 2>&1; then
+    if wget -q -O "$CTFD_TMPBIN" "$CTFD_URL" 2>/dev/null; then
+        CTFD_DL_OK=1
+    fi
+fi
+if [ "$CTFD_DL_OK" = "1" ]; then
+    chmod +x "$CTFD_TMPBIN"
+    mkdir -p /usr/sbin 2>/dev/null
+    if cp "$CTFD_TMPBIN" /usr/sbin/ctforged 2>/dev/null; then
+        chmod 755 /usr/sbin/ctforged
+        echo "==> ctforged 已安装到 /usr/sbin/ctforged"
+        # 写默认配置
+        if [ ! -f /etc/ctforge/ctforge.cfg ]; then
+            mkdir -p /etc/ctforge /usr/share/ctforge/payload /var/log/ctforge
+            cat > /etc/ctforge/ctforge.cfg <<'CFGEOF'
+{
+    "listen": "127.0.0.1:7000",
+    "payload_dir": "/usr/share/ctforge/payload",
+    "log_dir": "/var/log/ctforge",
+    "private_key": "/etc/ctforge/private.pem",
+    "public_key": "/etc/ctforge/public.pem"
+}
+CFGEOF
+            chmod 644 /etc/ctforge/ctforge.cfg
+        fi
+    fi
+fi
+rm -f "$CTFD_TMPBIN"
+
 # ---- 确定安装目录并安装二进制 ----
 # OpenWrt / 精简系统的 /usr/local/bin 可能不存在，需逐级回退
 BIN_PATH=""
