@@ -34,6 +34,17 @@
         <t-descriptions-item label="磁盘">
           {{ formatKB(agent.last_metrics?.disk_used_kb) }} / {{ formatKB(agent.last_metrics?.disk_total_kb) }}
         </t-descriptions-item>
+        <t-descriptions-item label="ctforged 状态">
+          <t-tag v-if="!agent.ctforge_state" theme="default" variant="light">未知</t-tag>
+          <t-tag v-else-if="agent.ctforge_state === 'running'" theme="success" variant="light">运行中</t-tag>
+          <t-tag v-else-if="agent.ctforge_state === 'started'" theme="success" variant="light">已拉起</t-tag>
+          <t-tag v-else-if="agent.ctforge_state === 'failed'" theme="danger" variant="light">拉起失败</t-tag>
+          <t-tag v-else-if="agent.ctforge_state === 'not_installed'" theme="warning" variant="light">未安装</t-tag>
+          <t-tag v-else theme="default" variant="light">{{ agent.ctforge_state }}</t-tag>
+        </t-descriptions-item>
+        <t-descriptions-item v-if="agent.ctforge_message" label="状态详情" :span="2">
+          {{ agent.ctforge_message }}
+        </t-descriptions-item>
       </t-descriptions>
     </t-card>
 

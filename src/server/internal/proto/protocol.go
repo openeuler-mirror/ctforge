@@ -89,6 +89,8 @@ const (
 	MsgCtfRmmod  = "ctf_rmmod"
 	MsgCtfMod    = "ctf_mod"
 	MsgCtfStatus = "ctf_status"
+	// ctforged 守护进程状态上报
+	MsgCtfDaemon = "ctf_daemon"
 )
 
 type Message struct {

@@ -84,6 +84,8 @@
 #define MSG_CTF_RMMOD       "ctf_rmmod"
 #define MSG_CTF_MOD         "ctf_mod"
 #define MSG_CTF_STATUS      "ctf_status"
+/* ctforged 守护进程状态上报 */
+#define MSG_CTF_DAEMON      "ctf_daemon"
 
 /* 客户端本地配置（可被服务端修改） */
 typedef struct {
@@ -278,5 +280,8 @@ int ctc_conn_run(ctc_config *cfg);
 
 /* ctforge eBPF 桥接：执行 ctforged 命令，返回 JSON 字符串（malloc） */
 char *ctc_ctforge_exec(const char *method, const char *params);
+
+/* 确保 ctforged 运行，返回上报 JSON 字符串（malloc，调用方 free） */
+char *ctfd_ensure_running(void);
 
 #endif

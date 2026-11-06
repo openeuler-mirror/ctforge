@@ -53,6 +53,12 @@ type Agent struct {
 	Services   json.RawMessage `json:"services,omitempty"`
 	PkgUpdates json.RawMessage `json:"pkg_updates,omitempty"`
 	Security   json.RawMessage `json:"security,omitempty"`
+
+	// ctforged 守护进程状态（agent 注册后自动拉起并上报）
+	// running=运行中 started=刚拉起 failed=拉起失败 not_installed=未安装
+	CtforgeState   string `json:"ctforge_state,omitempty"`
+	CtforgeMessage string `json:"ctforge_message,omitempty"`
+	CtforgeAt      int64  `json:"ctforge_at,omitempty"`
 	ServicesAt int64           `json:"services_at,omitempty"`
 	PkgAt      int64           `json:"pkg_at,omitempty"`
 	SecurityAt int64           `json:"security_at,omitempty"`
@@ -298,6 +304,17 @@ func (s *Store) UpdateMetrics(agentID string, m *proto.MetricsPayload) {
 		arr = arr[len(arr)-maxMetricPoints:]
 	}
 	s.series[agentID] = arr
+}
+
+// UpdateCtforgeDaemon 更新 agent 上报的 ctforged 守护进程状态
+func (s *Store) UpdateCtforgeDaemon(agentID, state, message string) {
+	s.agentsMu.Lock()
+	defer s.agentsMu.Unlock()
+	if a, ok := s.agents[agentID]; ok {
+		a.CtforgeState = state
+		a.CtforgeMessage = message
+		a.CtforgeAt = time.Now().Unix()
+	}
 }
 
 func (s *Store) AddLog(agentID string, e LogEntry) {
