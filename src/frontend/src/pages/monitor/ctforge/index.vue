@@ -16,6 +16,7 @@
       </template>
       <template #actions>
         <t-space>
+          <t-button theme="warning" :loading="deploying" @click="onDeploy">部署 ctforged</t-button>
           <t-button theme="default" :loading="loadingStatus" @click="refreshStatus">刷新状态</t-button>
           <t-button theme="primary" :loading="loadingModules" @click="refreshModules">刷新模块</t-button>
         </t-space>
@@ -114,6 +115,7 @@ import {
   ctforgeInsmod,
   ctforgeRmmod,
   ctforgeModCmd,
+  ctforgeDeploy,
 } from '@/api/ctforge';
 import { http } from '@/api/agent';
 import type { Agent } from '@/api/agent';
@@ -136,6 +138,7 @@ const selectedModule = computed(() => selectedRowKeys.value[0] || '');
 const insmodForm = reactive({ module: '' });
 const modForm = reactive({ module: '', subcmd: '' });
 const acting = ref(false);
+const deploying = ref(false);
 const cmdResult = ref('');
 
 // ---------- 模块列表列定义 ----------
@@ -254,6 +257,27 @@ async function onModCmd() {
     MessagePlugin.error(`执行失败: ${(e as Error).message}`);
   } finally {
     acting.value = false;
+  }
+}
+
+// 部署 ctforged 到目标主机
+async function onDeploy() {
+  if (!currentAgent.value) return;
+  deploying.value = true;
+  try {
+    const res = await ctforgeDeploy(currentAgent.value);
+    cmdResult.value = JSON.stringify(res, null, 2);
+    if (res.ok) {
+      MessagePlugin.success('ctforged 部署命令已下发，正在安装...');
+      // 部署完成后自动刷新状态
+      setTimeout(() => { refreshStatus(); refreshModules(); }, 5000);
+    } else {
+      MessagePlugin.error(`部署失败: ${res.stderr || 'exit ' + res.exit_code}`);
+    }
+  } catch (e: unknown) {
+    MessagePlugin.error(`部署请求失败: ${(e as Error).message}`);
+  } finally {
+    deploying.value = false;
   }
 }
 

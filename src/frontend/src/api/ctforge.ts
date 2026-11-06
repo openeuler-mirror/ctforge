@@ -27,3 +27,9 @@ export const ctforgeRmmod = (agentId: string, module: string) =>
 
 export const ctforgeModCmd = (agentId: string, module: string, subcmd: string) =>
   http.post<never, Record<string, unknown>>(`/agents/${agentId}/ctforge/mod`, { module, subcmd });
+
+// 部署 ctforged 到目标主机（通过 agent 下发命令执行安装脚本）
+export const ctforgeDeploy = (agentId: string) =>
+  http.post<never, { ok: boolean; exit_code: number; stdout: string; stderr: string }>(
+    `/agents/${agentId}/ctforge/deploy`
+  );
