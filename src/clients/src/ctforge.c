@@ -151,11 +151,49 @@ static int ctforge_connect(void)
  * 向 ctforged 发送 JSON-RPC 请求并读取响应（一行 JSON）。
  * 返回 malloc 的响应字符串，调用方负责 free；失败返回 NULL。
  */
+/*
+ * JSON 字符串转义：把 src 中的 " 和 \ 转义，结果写入 dst（最大 dstsize 字节）。
+ * 返回写入的字节数（不含 NUL），失败返回 -1。
+ */
+static int ctforge_json_escape(char *dst, size_t dstsize, const char *src)
+{
+    size_t off = 0;
+    const char *s = src;
+    while (*s) {
+        const char *esc = NULL;
+        if (*s == '"')
+            esc = "\\\"";
+        else if (*s == '\\')
+            esc = "\\\\";
+        if (esc) {
+            if (off + 2 >= dstsize)
+                return -1;
+            dst[off++] = esc[0];
+            dst[off++] = esc[1];
+        } else {
+            if (off + 1 >= dstsize)
+                return -1;
+            dst[off++] = *s;
+        }
+        s++;
+    }
+    dst[off] = '\0';
+    return (int)off;
+}
+
 static char *ctforge_rpc(const char *method, const char *params)
 {
     int fd = ctforge_connect();
     if (fd < 0)
         return NULL;
+
+    /* JSON 转义 params 防止注入 */
+    char params_escaped[4096];
+    if (ctforge_json_escape(params_escaped, sizeof(params_escaped),
+                            params ? params : "") < 0) {
+        close(fd);
+        return NULL;
+    }
 
     /* 构造与 ctforgectl 一致的请求格式 */
     const char *fmt =
@@ -163,7 +201,7 @@ static char *ctforge_rpc(const char *method, const char *params)
         "\"method\":\"%s\",\"reqmsg\":{\"params\":\"%s\"}}\n";
     char *req = NULL;
     if (asprintf(&req, fmt, (long)time(NULL), method,
-                 params ? params : "") < 0) {
+                 params_escaped) < 0) {
         close(fd);
         return NULL;
     }
