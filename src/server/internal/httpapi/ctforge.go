@@ -27,51 +27,51 @@ func (s *Server) handleCtforge(w http.ResponseWriter, r *http.Request, id string
 		return
 	}
 
-	ac, online := s.agent.Get(id)
-	if !online {
-		fail(w, http.StatusBadGateway, 50201, "agent offline")
-		return
-	}
-
-	// 解析请求体
-	var req ctforgeRequest
-	if r.Body != nil {
-		json.NewDecoder(r.Body).Decode(&req)
-	}
-
-	// 构建 agent 消息 payload
+	// 先校验子命令合法性，避免对在线状态的旁路探测
 	var msgType string
-	var payload any
-
+	var needModule bool
 	switch sub {
 	case "lsmod":
 		msgType = proto.MsgCtfLsmod
 	case "status":
 		msgType = proto.MsgCtfStatus
 	case "insmod":
-		if req.Module == "" {
-			fail(w, http.StatusBadRequest, 40001, "module name required")
-			return
-		}
 		msgType = proto.MsgCtfInsmod
-		payload = map[string]string{"module": req.Module}
+		needModule = true
 	case "rmmod":
-		if req.Module == "" {
-			fail(w, http.StatusBadRequest, 40001, "module name required")
-			return
-		}
 		msgType = proto.MsgCtfRmmod
-		payload = map[string]string{"module": req.Module}
+		needModule = true
 	case "mod":
-		if req.Module == "" {
-			fail(w, http.StatusBadRequest, 40001, "module name required")
-			return
-		}
 		msgType = proto.MsgCtfMod
-		payload = map[string]string{"module": req.Module, "subcmd": req.Subcmd}
+		needModule = true
 	default:
 		fail(w, http.StatusNotFound, 40400, "unknown ctforge subcommand: "+sub)
 		return
+	}
+
+	// 解析请求体并校验必填字段
+	var req ctforgeRequest
+	if r.Body != nil {
+		json.NewDecoder(r.Body).Decode(&req)
+	}
+	if needModule && req.Module == "" {
+		fail(w, http.StatusBadRequest, 40001, "module name required")
+		return
+	}
+
+	ac, online := s.agent.Get(id)
+	if !online {
+		fail(w, http.StatusBadGateway, 50201, "agent offline")
+		return
+	}
+
+	// 构建 agent 消息 payload
+	var payload any
+	switch sub {
+	case "insmod", "rmmod":
+		payload = map[string]string{"module": req.Module}
+	case "mod":
+		payload = map[string]string{"module": req.Module, "subcmd": req.Subcmd}
 	}
 
 	// 发请求给 agent，30s 超时
