@@ -69,6 +69,41 @@
       <t-alert theme="success" style="margin-bottom: 12px">
         在目标 Linux 主机上以管理员身份执行以下命令即可完成安装并自动纳管。
       </t-alert>
+
+      <!-- 服务端地址配置 -->
+      <t-form :data="deployForm" layout="inline" style="margin-bottom: 12px">
+        <t-form-item label="服务端地址">
+          <t-input
+            v-model="deployForm.serverHost"
+            placeholder="留空 = 自动检测"
+            style="width: 220px"
+            :tips="serverIps.length > 0 ? `可用 IP: ${serverIps.join(', ')}` : ''"
+          />
+        </t-form-item>
+        <t-form-item>
+          <t-button
+            theme="primary"
+            size="small"
+            :loading="savingDeploy"
+            @click="saveDeployConfig"
+          >保存</t-button>
+          <t-button
+            v-if="deployForm.serverHost"
+            theme="default"
+            size="small"
+            style="margin-left: 8px"
+            @click="resetDeployConfig"
+          >恢复自动</t-button>
+        </t-form-item>
+      </t-form>
+      <t-alert
+        v-if="serverIps.length > 1"
+        theme="info"
+        style="margin-bottom: 12px"
+      >
+        检测到 {{ serverIps.length }} 个可用 IP，agent 将自动切换：{{ serverIps.join(' → ') }}
+      </t-alert>
+
       <div class="cmd-box">
         <code>{{ deployCmd }}</code>
         <t-button theme="primary" size="small" @click="copyCmd">复制</t-button>
@@ -82,7 +117,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue';
+import { computed, onMounted, onUnmounted, reactive, ref } from 'vue';
 import { MessagePlugin, DialogPlugin } from 'tdesign-vue-next';
 import type { PrimaryTableCol } from 'tdesign-vue-next';
 import dayjs from 'dayjs';
@@ -91,6 +126,7 @@ import {
   approveAgent, rejectAgent, decideUninstall, getDeployInfo, listAgents, listApprovals, listUninstallRequests,
   type Agent, type PendingAgent, type UninstallReq,
 } from '@/api/agent';
+import { http } from '@/api/agent';
 
 const pendings = ref<PendingAgent[]>([]);
 const approved = ref<Agent[]>([]);
@@ -98,7 +134,42 @@ const uninstalls = ref<UninstallReq[]>([]);
 const serverId = ref('');
 const deployCmd = ref('');
 const loading = ref(false);
+const serverIps = ref<string[]>([]);
+const savingDeploy = ref(false);
+const deployForm = reactive({ serverHost: '' });
 let timer: number | undefined;
+
+// ---------- 部署配置 ----------
+async function fetchDeployConfig() {
+  try {
+    const res = await http.get<never, {
+      server_ips: string[];
+      custom_host: string;
+      auto_detect_host: string;
+      download_url: string;
+    }>('/deploy/config');
+    serverIps.value = res.server_ips || [];
+    deployForm.serverHost = res.custom_host || '';
+  } catch { /* 静默失败，不影响主要功能 */ }
+}
+
+async function saveDeployConfig() {
+  savingDeploy.value = true;
+  try {
+    await http.put('/deploy/config', { server_host: deployForm.serverHost });
+    MessagePlugin.success('服务端地址已保存');
+    await fetchAll();
+  } catch (e: unknown) {
+    MessagePlugin.error(`保存失败: ${(e as Error).message}`);
+  } finally {
+    savingDeploy.value = false;
+  }
+}
+
+async function resetDeployConfig() {
+  deployForm.serverHost = '';
+  await saveDeployConfig();
+}
 
 const columns: PrimaryTableCol[] = [
   { colKey: 'agent_id', title: '主机标识', width: 180, ellipsis: true },
