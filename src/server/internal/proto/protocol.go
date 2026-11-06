@@ -82,6 +82,13 @@ const (
 	MsgDockerInspect = "docker_inspect"
 	MsgDockerCreate  = "docker_create"
 	MsgDockerCompose = "docker_compose"
+
+	// CTForge eBPF 框架桥接消息
+	MsgCtfLsmod  = "ctf_lsmod"
+	MsgCtfInsmod = "ctf_insmod"
+	MsgCtfRmmod  = "ctf_rmmod"
+	MsgCtfMod    = "ctf_mod"
+	MsgCtfStatus = "ctf_status"
 )
 
 type Message struct {
