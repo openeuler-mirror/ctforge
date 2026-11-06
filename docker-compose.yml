@@ -23,6 +23,10 @@ services:
       - ctforge-certs:/etc/ctforge
       # Agent 二进制（供 /download/agent 下载，宿主机编译后放入此目录）
       - ./src/server/bin:/app/bin:ro
+      # 前端构建产物（宿主机 npm run build 后自动同步，无需 docker cp）
+      - ./src/frontend/dist:/app/static:ro
+      # 覆盖镜像内 server 二进制（宿主机 go build 后直接生效，无需重建镜像）
+      - ./src/server/bin/ctforge-server:/usr/local/bin/ctforge-server:ro
     environment:
       TZ: Asia/Shanghai
       CTF_HTTP: ":8080"
