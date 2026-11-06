@@ -196,7 +196,21 @@ async function refreshModules() {
   try {
     const res = await ctforgeLsmod(currentAgent.value);
     if (myToken !== requestToken) return; // 过期响应
-    modules.value = Array.isArray(res) ? res : [res];
+    // 兼容多种返回格式：数组 / {msg:空列表} / {modules:[...]} / 单条对象
+    const list: Record<string, unknown>[] = [];
+    if (Array.isArray(res)) {
+      for (const item of res) list.push(item as Record<string, unknown>);
+    } else if (res && typeof res === 'object') {
+      const obj = res as Record<string, unknown>;
+      if (obj.msg) {
+        // 空列表提示：{msg: "no module insmod!"}
+      } else if (Array.isArray(obj.modules)) {
+        for (const item of obj.modules) list.push(item as Record<string, unknown>);
+      } else {
+        list.push(obj);
+      }
+    }
+    modules.value = list;
     selectedRowKeys.value = [];
   } catch (e: unknown) {
     if (myToken !== requestToken) return;
