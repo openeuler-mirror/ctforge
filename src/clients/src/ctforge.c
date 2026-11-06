@@ -14,6 +14,21 @@
 #include <netdb.h>
 #include <unistd.h>
 
+/* socket I/O 超时：防止 ctforged 挂起时 agent 永远阻塞 */
+#define CTFORGE_IO_TIMEOUT_SEC 10
+
+static int ctforge_set_timeout(int fd)
+{
+    struct timeval tv;
+    tv.tv_sec = CTFORGE_IO_TIMEOUT_SEC;
+    tv.tv_usec = 0;
+    if (setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv)) < 0)
+        return -1;
+    if (setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv)) < 0)
+        return -1;
+    return 0;
+}
+
 #define CTFORGE_CFG_PATH "/etc/ctforge/ctforge.cfg"
 #define CTFORGE_RESP_MAX (256 * 1024)
 
@@ -53,9 +68,19 @@ static int ctforge_read_listen(char *buf, size_t buflen)
 
 static int ctforge_connect_unix(const char *path)
 {
+    if (strlen(path) >= sizeof(((struct sockaddr_un *)0)->sun_path)) {
+        fprintf(stderr, "[ctforge] socket path too long (%zu >= %zu): %s\n",
+                strlen(path),
+                sizeof(((struct sockaddr_un *)0)->sun_path), path);
+        return -1;
+    }
     int fd = socket(AF_UNIX, SOCK_STREAM, 0);
     if (fd < 0)
         return -1;
+    if (ctforge_set_timeout(fd) < 0) {
+        close(fd);
+        return -1;
+    }
     struct sockaddr_un addr;
     memset(&addr, 0, sizeof(addr));
     addr.sun_family = AF_UNIX;
@@ -82,6 +107,11 @@ static int ctforge_connect_tcp(const char *host, int port)
         fd = socket(p->ai_family, p->ai_socktype, p->ai_protocol);
         if (fd < 0)
             continue;
+        if (ctforge_set_timeout(fd) < 0) {
+            close(fd);
+            fd = -1;
+            continue;
+        }
         if (connect(fd, p->ai_addr, p->ai_addrlen) == 0)
             break;
         close(fd);
