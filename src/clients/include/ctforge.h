@@ -1,5 +1,5 @@
-#ifndef ctforge_PROTOCOL_H
-#define ctforge_PROTOCOL_H
+#ifndef CTFORGE_PROTOCOL_H
+#define CTFORGE_PROTOCOL_H
 
 #include <stddef.h>
 #include <stdint.h>

@@ -2,14 +2,14 @@
 
 ## 1. 项目概述
 
-CTForge 是一个基于 eBPF 的 Linux 安全框架，集成了主机监控、远程运维、Web 控制台三大能力。本项目由两个子项目合并而成：
+CTForge 是一个基于 eBPF 的 Linux 安全框架，集成了主机监控、远程运维、Web 控制台三大能力。项目各组件来源：
 
-| 来源 | 功能 | 技术栈 |
+| 组件 | 功能 | 技术栈 |
 |------|------|--------|
-| ctforge（原有） | eBPF 内核防护、payload 动态加载、SM2 签名 | C + eBPF + libbpf |
-| ctforge（合并） | 主机监控、远程终端、文件管理、告警通知 | Go + Vue3 + C |
+| eBPF 核心 | eBPF 内核防护、payload 动态加载、SM2 签名 | C + eBPF + libbpf |
+| 监控运维 | 主机监控、远程终端、文件管理、告警通知 | Go + Vue3 + C |
 
-合并后项目统一命名为 **CTForge**，保留原有 eBPF 能力的同时，获得完整的 Web 化管理界面。
+CTForge 将 eBPF 防护与 Web 化运维能力整合到统一平台。
 
 ## 2. 架构设计
 
@@ -191,7 +191,7 @@ CTForge 原有的 eBPF 能力（payload 加载/卸载/状态查询）通过 `ctf
 
 ### 4.2 消息协议
 
-Agent 与 Server 之间使用扩展的 ctforge 协议，新增 5 种消息类型：
+Agent 与 Server 之间使用 CTForge 原生协议，新增 5 种消息类型：
 
 | 消息类型 | 方向 | 说明 |
 |----------|------|------|
@@ -336,7 +336,7 @@ npm run build    # TypeScript 编译 + Vite 打包
 | B | Server 模块导入（20 个 internal 包） | 22 |
 | C | Client 模块导入（17 个 C 文件） | 18 |
 | D | Frontend 导入（pages/router/store/locales 等） | 43 |
-| E | 重命名 ctforge → ctforge | 14 |
+| E | 品牌重命名为 ctforge | 14 |
 | F | CTForge eBPF 集成（agent 桥接 + server API + 前端页面） | 8 |
 | G | 构建系统 + 文档 + 测试 | 3 |
 | **合计** | | **130+** |
