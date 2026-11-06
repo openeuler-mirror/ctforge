@@ -167,30 +167,40 @@ async function loadAgents() {
 }
 
 // ---------- 数据加载 ----------
+// 竞态保护：每次切换主机时递增 token，响应时校验
+let requestToken = 0;
+
 async function refreshStatus() {
   if (!currentAgent.value) return;
+  const myToken = ++requestToken;
   loadingStatus.value = true;
   try {
-    status.value = await ctforgeStatus(currentAgent.value);
+    const res = await ctforgeStatus(currentAgent.value);
+    if (myToken !== requestToken) return; // 过期响应
+    status.value = res;
   } catch (e: unknown) {
+    if (myToken !== requestToken) return;
     status.value = { error: (e as Error).message };
   } finally {
-    loadingStatus.value = false;
+    if (myToken === requestToken) loadingStatus.value = false;
   }
 }
 
 async function refreshModules() {
   if (!currentAgent.value) return;
+  const myToken = ++requestToken;
   loadingModules.value = true;
   try {
     const res = await ctforgeLsmod(currentAgent.value);
+    if (myToken !== requestToken) return; // 过期响应
     modules.value = Array.isArray(res) ? res : [res];
     selectedRowKeys.value = [];
   } catch (e: unknown) {
+    if (myToken !== requestToken) return;
     MessagePlugin.error(`加载模块列表失败: ${(e as Error).message}`);
     modules.value = [];
   } finally {
-    loadingModules.value = false;
+    if (myToken === requestToken) loadingModules.value = false;
   }
 }
 
