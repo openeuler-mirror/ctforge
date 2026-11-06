@@ -55,6 +55,12 @@ set -e
 
 echo "==> CTForge Agent Installer"
 
+# ---- 参数解析：--ctforged-only 单独安装 ctforged（跳过 agent 安装与幂等检测） ----
+CTFD_ONLY=0
+for arg in "$@"; do
+    [ "$arg" = "--ctforged-only" ] && CTFD_ONLY=1
+done
+
 # ---- 权限检查 ----
 if [ "$(id -u)" != "0" ]; then
     echo "错误：请以 root 或 sudo 运行本脚本"
@@ -89,6 +95,67 @@ case "$ARCH" in
     aarch64|arm64)  BIN_ARCH="arm64" ;;
     *)              echo "错误：不支持的架构 $ARCH"; exit 1 ;;
 esac
+
+# ---- CTFD_ONLY 模式：跳过 agent 安装，直接下载 ctforged ----
+if [ "$CTFD_ONLY" = "1" ]; then
+    echo "==> 仅安装 ctforged 模式"
+    CTFD_TMPBIN=$(mktemp /tmp/ctforged.XXXXXX)
+    CTFD_URL="$(echo "$HTTP_URL" | sed 's|/download/agent|/download/ctforged|')"
+    echo "    架构: $BIN_ARCH  地址: $CTFD_URL"
+    if command -v curl >/dev/null 2>&1; then
+        curl -fsSL -o "$CTFD_TMPBIN" "$CTFD_URL" 2>/dev/null || { echo "错误：ctforged 下载失败"; exit 1; }
+    elif command -v wget >/dev/null 2>&1; then
+        wget -q -O "$CTFD_TMPBIN" "$CTFD_URL" 2>/dev/null || { echo "错误：ctforged 下载失败"; exit 1; }
+    else
+        echo "错误：未找到 curl 或 wget"
+        exit 1
+    fi
+    chmod +x "$CTFD_TMPBIN"
+    mkdir -p /usr/sbin /etc/ctforge /usr/share/ctforge/payload /var/log/ctforge
+    cp "$CTFD_TMPBIN" /usr/sbin/ctforged && chmod 755 /usr/sbin/ctforged
+    rm -f "$CTFD_TMPBIN"
+    echo "==> ctforged 已安装到 /usr/sbin/ctforged"
+    # 写默认配置（如不存在）
+    if [ ! -f /etc/ctforge/ctforge.cfg ]; then
+        cat > /etc/ctforge/ctforge.cfg <<'CFGEOF'
+{
+    "listen": "127.0.0.1:7000",
+    "payload_dir": "/usr/share/ctforge/payload",
+    "log_dir": "/var/log/ctforge",
+    "private_key": "***",
+    "public_key": "/etc/ctforge/public.pem"
+}
+CFGEOF
+        chmod 644 /etc/ctforge/ctforge.cfg
+    fi
+    # 注册 systemd 服务并启动
+    if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
+        cat > /etc/systemd/system/ctforged.service <<'UNIT'
+[Unit]
+Description=CTForge eBPF Daemon
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/sbin/ctforged -c /etc/ctforge/ctforge.cfg
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+        systemctl daemon-reload
+        systemctl enable ctforged >/dev/null 2>&1 || true
+        systemctl restart ctforged
+        echo "==> ctforged 已通过 systemd 启动"
+    else
+        nohup /usr/sbin/ctforged > /var/log/ctforged.log 2>&1 &
+        echo "==> ctforged 已后台启动（PID: $!）"
+    fi
+    echo "==> 完成！ctforged 已就绪"
+    exit 0
+fi
 
 # ---- 下载 agent 二进制 ----
 echo "==> 下载 agent 二进制..."

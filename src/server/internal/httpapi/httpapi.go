@@ -362,7 +362,12 @@ func (s *Server) handleAgentByID(w http.ResponseWriter, r *http.Request) {
 		if idx := strings.Index(r.URL.Path, "/ctforge/"); idx >= 0 {
 			sub = r.URL.Path[idx+len("/ctforge/"):]
 		}
-		s.handleCtforge(w, r, id, sub)
+		// deploy 子命令：下发命令在目标主机部署 ctforged
+		if sub == "deploy" {
+			s.handleCtforgeDeploy(w, r, id)
+		} else {
+			s.handleCtforge(w, r, id, sub)
+		}
 	default:
 		fail(w, http.StatusNotFound, 40400, "not found")
 	}

@@ -2,8 +2,8 @@ package httpapi
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
-	"strings"
 	"time"
 
 	"ctforge/server/internal/auth"
@@ -93,16 +93,52 @@ func (s *Server) handleCtforge(w http.ResponseWriter, r *http.Request, id string
 	ok(w, map[string]any{"result": "ok"})
 }
 
-// ctforgeHandler 解析 URL 路径分发
-// 匹配: /api/agents/{id}/ctforge/{sub}
-func (s *Server) ctforgeHandler(w http.ResponseWriter, r *http.Request) {
-	// 路径: /api/agents/{id}/ctforge/{sub}
-	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/agents/"), "/")
-	if len(parts) < 3 || parts[1] != "ctforge" {
-		fail(w, http.StatusNotFound, 40400, "not found")
+// handleCtforgeDeploy 通过 agent 下发命令在目标主机部署 ctforged
+// 复用 cmd_exec 通道：下载部署脚本并以 --ctforged-only 模式执行
+// POST /api/agents/{id}/ctforge/deploy
+func (s *Server) handleCtforgeDeploy(w http.ResponseWriter, r *http.Request, id string) {
+	if r.Method != http.MethodPost {
+		fail(w, http.StatusMethodNotAllowed, 40500, "method not allowed")
 		return
 	}
-	agentID := parts[0]
-	sub := parts[2]
-	s.handleCtforge(w, r, agentID, sub)
+	sess := sessionFrom(r.Context())
+	if sess == nil || !requireRole(sess, auth.RoleOperator) {
+		fail(w, http.StatusForbidden, 40300, "权限不足")
+		return
+	}
+
+	ac, online := s.agent.Get(id)
+	if !online {
+		fail(w, http.StatusBadGateway, 50201, "agent offline")
+		return
+	}
+
+	// 生成部署命令：优先使用批准管理保存的地址
+	host := ""
+	if s.deploy != nil && s.deploy.ServerHost != "" {
+		host = s.deploy.ServerHost
+	} else {
+		host = detectOutboundIP()
+	}
+	cmd := fmt.Sprintf(
+		"curl -fsSL http://%s:8080/api/deploy/script.sh | sh -s -- --ctforged-only",
+		host)
+
+	resp, err := ac.Request(proto.MsgCmdExec, "", proto.CmdExecPayload{
+		Command:    cmd,
+		TimeoutSec: 120,
+		Shell:      "/bin/sh",
+	}, 130*time.Second)
+	if err != nil {
+		fail(w, http.StatusGatewayTimeout, 50401, err.Error())
+		return
+	}
+
+	var res proto.CmdExecResult
+	if err := proto.DecodePayload(resp, &res); err != nil {
+		fail(w, http.StatusInternalServerError, 50001, err.Error())
+		return
+	}
+	s.auth.AddAudit(sess.Username, "ctforge_deploy", id, clientIP(r), res.OK, cmd)
+	ok(w, res)
 }
