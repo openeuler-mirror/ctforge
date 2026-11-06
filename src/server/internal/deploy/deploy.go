@@ -108,7 +108,8 @@ case "$ARCH" in
 esac
 
 # ---- CTFD_ONLY 模式：跳过 agent 安装，直接下载 ctforged ----
-if [ "$CTFD_ONLY" = "1" ]; then
+# --force-agent --ctforged-only 组合时：先更新 agent（跳过此分支），装完 agent 后再装 ctforged
+if [ "$CTFD_ONLY" = "1" ] && [ "$FORCE_AGENT" != "1" ]; then
     echo "==> 仅安装 ctforged 模式"
     CTFD_TMPBIN=$(mktemp /tmp/ctforged.XXXXXX)
     # ctforged 下载地址（由服务端生成时硬编码）
