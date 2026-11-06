@@ -49,9 +49,10 @@ func (s *Server) handleCtforge(w http.ResponseWriter, r *http.Request, id string
 		return
 	}
 
-	// 解析请求体并校验必填字段
+	// 解析请求体并校验必填字段（限制 body 大小防止内存耗尽攻击）
 	var req ctforgeRequest
 	if r.Body != nil {
+		r.Body = http.MaxBytesReader(w, r.Body, 1<<20) // 1MB
 		json.NewDecoder(r.Body).Decode(&req)
 	}
 	if needModule && req.Module == "" {
