@@ -1,0 +1,67 @@
+# ============================================================
+# CTForge Docker Compose
+# 一键启动完整 CTForge 服务端（含前端 + Go Server）
+# 参考 ctcontrol 的 docker-compose.yml 结构
+# ============================================================
+
+services:
+  ctforge-server:
+    build:
+      context: ./src
+      dockerfile: server/Dockerfile
+    image: ctforge/server:latest
+    container_name: ctforge-server
+    restart: unless-stopped
+    ports:
+      - "8080:8080"       # Web 控制台 + REST API + WebSocket
+      - "9000:9000"       # Agent 控制通道（TLS）
+      - "9001:9001/udp"   # 局域网发现广播
+    volumes:
+      # 持久化账户与会话状态
+      - ctforge-data:/var/lib/ctforge
+      # 持久化 TLS 证书与密钥（首次启动自动生成，之后保持不变）
+      - ctforge-certs:/etc/ctforge
+    environment:
+      TZ: Asia/Shanghai
+      CTF_HTTP: ":8080"
+      CTF_SOCK: ":9000"
+      CTF_STATIC: "/app/static"
+      CTF_ACCOUNTS: "/var/lib/ctforge/accounts.json"
+      CTF_TLS_CERT: "/etc/ctforge/server.crt"
+      CTF_TLS_KEY: "/etc/ctforge/server.key"
+      # 注册令牌：Agent 需配置相同 token 才能接入（留空则不校验）
+      CTF_TOKEN: "${CTF_TOKEN:-}"
+      # 局域网发现端口（0 = 关闭）
+      CTF_DISCOVER: "${CTF_DISCOVER:-9001}"
+      # SSH 跳板机端口（0 = 关闭）
+      CTF_SSH: "${CTF_SSH:-:2222}"
+      # 额外证书 SAN，逗号分隔（例：10.0.0.5,ct.example.com）
+      CTF_TLS_SAN: "${CTF_TLS_SAN:-}"
+    networks:
+      - ctforge-net
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 1G
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/api/health"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  ctforge-data:
+    driver: local
+  ctforge-certs:
+    driver: local
+
+networks:
+  ctforge-net:
+    driver: bridge
