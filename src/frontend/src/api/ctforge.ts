@@ -1,20 +1,6 @@
-import axios from 'axios';
-
-const BASE = import.meta.env.VITE_API_URL || '/api';
-
-export const http = axios.create({
-  baseURL: BASE,
-  timeout: 30000,
-});
-
-// 请求拦截：注入 token
-http.interceptors.request.use((config) => {
-  const token = localStorage.getItem('token');
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`;
-  }
-  return config;
-});
+// 复用 agent.ts 的 http 实例（统一 baseURL、鉴权与错误处理）
+export { http } from './agent';
+import { http } from './agent';
 
 // ---------- CTForge eBPF 管理 ----------
 
