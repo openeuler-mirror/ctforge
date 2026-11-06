@@ -78,6 +78,13 @@
 #define MSG_DOCKER_CREATE   "docker_create"
 #define MSG_DOCKER_COMPOSE  "docker_compose"
 
+/* CTForge eBPF 框架桥接消息 */
+#define MSG_CTF_LSMOD       "ctf_lsmod"
+#define MSG_CTF_INSMOD      "ctf_insmod"
+#define MSG_CTF_RMMOD       "ctf_rmmod"
+#define MSG_CTF_MOD         "ctf_mod"
+#define MSG_CTF_STATUS      "ctf_status"
+
 /* 客户端本地配置（可被服务端修改） */
 typedef struct {
     char server_host[128];
@@ -267,5 +274,8 @@ char *ctc_upgrade_json(const char *url, const char *sha256, const char *version)
 
 /* 连接/主循环 */
 int ctc_conn_run(ctc_config *cfg);
+
+/* ctforge eBPF 桥接：执行 ctforged 命令，返回 JSON 字符串（malloc） */
+char *ctc_ctforge_exec(const char *method, const char *params);
 
 #endif
