@@ -623,6 +623,15 @@ int ctc_conn_run(ctc_config *cfg) {
                 cfg->server_host, cfg->server_port, cfg->agent_id);
         send_log(fd, "info", "agent connected");
 
+        /* 注册成功后：检查并拉起 ctforged，结果上报服务端 */
+        {
+            char *ctfd_report = ctfd_ensure_running();
+            if (ctfd_report) {
+                ctc_send_simple(fd, MSG_CTF_DAEMON, ctfd_report);
+                free(ctfd_report);
+            }
+        }
+
         time_t last_hb = 0, last_metrics = 0;
         while (g_running) {
             time_t now = time(NULL);

@@ -357,6 +357,15 @@ func (s *Server) dispatch(ac *AgentConn, m *proto.Message) {
 				s.OnAnomaly(ac.AgentID, a.Kind, a.Level, a.Detail)
 			}
 		}
+	case proto.MsgCtfDaemon:
+		// agent 注册后上报 ctforged 守护进程状态（运行中/已拉起/失败/未安装）
+		var dr struct {
+			State   string `json:"state"`
+			Message string `json:"message"`
+		}
+		if err := proto.DecodePayload(m, &dr); err == nil {
+			s.st.UpdateCtforgeDaemon(ac.AgentID, dr.State, dr.Message)
+		}
 	case proto.MsgTaskResult:
 		// agent 用 task_result 直接回报执行结果（不是 ack），
 		// 需要用同一个 msg.ID 唤醒等待中的 Request。

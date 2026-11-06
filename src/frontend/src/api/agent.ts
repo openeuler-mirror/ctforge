@@ -98,6 +98,9 @@ export interface Agent {
   alerts?: any[];
   net_rx_rate?: number;
   net_tx_rate?: number;
+  ctforge_state?: string;   // running/started/failed/not_installed
+  ctforge_message?: string; // ctforged 状态描述
+  ctforge_at?: number;      // 上报时间戳
   net_conns?: number;
   last_heartbeat?: {
     timestamp: number;
