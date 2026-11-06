@@ -105,13 +105,14 @@ static void send_metrics(int fd, const ctc_metrics *m) {
     ctc_send_simple(fd, MSG_METRICS, payload);
 }
 
-static int connect_server(const ctc_config *cfg) {
+/* 尝试连接单个 host，返回 fd 或 -1 */
+static int connect_host(const ctc_config *cfg, const char *host) {
     char port[16];
     snprintf(port, sizeof(port), "%d", cfg->server_port);
     struct addrinfo hints = {0}, *res = NULL;
     hints.ai_family = AF_UNSPEC;
     hints.ai_socktype = SOCK_STREAM;
-    if (getaddrinfo(cfg->server_host, port, &hints, &res) != 0) return -1;
+    if (getaddrinfo(host, port, &hints, &res) != 0) return -1;
     int fd = -1;
     for (struct addrinfo *p = res; p; p = p->ai_next) {
         fd = socket(p->ai_family, p->ai_socktype, p->ai_protocol);
@@ -122,42 +123,63 @@ static int connect_server(const ctc_config *cfg) {
         close(fd); fd = -1;
     }
     freeaddrinfo(res);
+    return fd;
+}
+
+/* 尝试连接单个 host 并完成 TLS 升级（带明文回退），返回 fd 或 -1 */
+static int connect_host_with_tls(const ctc_config *cfg, const char *host) {
+    int fd = connect_host(cfg, host);
+    if (fd < 0) return -1;
+
+    struct timeval tv = {0, 0};
+    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+    if (!cfg->use_tls) return fd;
+
+    int tls_rc = ctc_tls_wrap(fd, host,
+                     cfg->server_fingerprint[0] ? cfg->server_fingerprint : NULL,
+                     cfg->tls_skip_verify);
+    if (tls_rc >= 0) return fd;
+
+    /* TLS 失败：回退明文重连 */
+    fprintf(stderr, "[ctc-agent] TLS connect failed on %s, retry plaintext\n", host);
+    close(fd);
+    fd = connect_host(cfg, host);
     if (fd >= 0) {
-        struct timeval tv = {0, 0};
-        setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
-        /* TLS 升级：优先 TLS，失败回退明文（双协议回退，确保 https/http 都能通） */
-        if (cfg->use_tls) {
-            int tls_rc = ctc_tls_wrap(fd, cfg->server_host,
-                             cfg->server_fingerprint[0] ? cfg->server_fingerprint : NULL,
-                             cfg->tls_skip_verify);
-            if (tls_rc < 0) {
-                /* TLS 失败：关 fd 重开明文连接（服务端支持双协议时可用） */
-                fprintf(stderr, "[ctc-agent] TLS connect failed, retry plaintext\n");
-                close(fd);
-                fd = -1;
-                /* 重新 TCP 连接（明文） */
-                struct addrinfo h2 = {0}, *r2 = NULL;
-                h2.ai_family = AF_UNSPEC;
-                h2.ai_socktype = SOCK_STREAM;
-                if (getaddrinfo(cfg->server_host, port, &h2, &r2) == 0) {
-                    for (struct addrinfo *p = r2; p; p = p->ai_next) {
-                        fd = socket(p->ai_family, p->ai_socktype, p->ai_protocol);
-                        if (fd < 0) continue;
-                        struct timeval tv2 = {10, 0};
-                        setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv2, sizeof(tv2));
-                        if (connect(fd, p->ai_addr, p->ai_addrlen) == 0) break;
-                        close(fd); fd = -1;
-                    }
-                    freeaddrinfo(r2);
-                }
-                if (fd >= 0) {
-                    struct timeval tv2 = {0, 0};
-                    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv2, sizeof(tv2));
-                }
-            }
-        }
+        struct timeval tv2 = {0, 0};
+        setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv2, sizeof(tv2));
     }
     return fd;
+}
+
+/* 遍历所有候选服务端地址，返回首个连通 fd 或 -1 */
+static int connect_server(const ctc_config *cfg) {
+    /* 单地址（无逗号）：直接连 */
+    if (!strchr(cfg->server_hosts, ','))
+        return connect_host_with_tls(cfg, cfg->server_host);
+
+    /* 多地址：逐个尝试 */
+    char hosts[512];
+    strncpy(hosts, cfg->server_hosts, sizeof(hosts) - 1);
+    hosts[sizeof(hosts) - 1] = '\0';
+
+    char *saveptr = NULL;
+    for (char *ip = strtok_r(hosts, ",", &saveptr); ip;
+         ip = strtok_r(NULL, ",", &saveptr)) {
+        /* trim 首尾空白 */
+        while (*ip == ' ' || *ip == '\t') ip++;
+        size_t len = strlen(ip);
+        while (len > 0 && (ip[len-1] == ' ' || ip[len-1] == '\t')) ip[--len] = '\0';
+        if (!len) continue;
+
+        fprintf(stderr, "[ctc-agent] trying server %s:%d\n", ip, cfg->server_port);
+        int fd = connect_host_with_tls(cfg, ip);
+        if (fd >= 0) {
+            fprintf(stderr, "[ctc-agent] connected to %s:%d\n", ip, cfg->server_port);
+            return fd;
+        }
+        fprintf(stderr, "[ctc-agent] %s:%d unreachable, trying next\n", ip, cfg->server_port);
+    }
+    return -1;
 }
 
 static int do_register(int fd, const ctc_config *cfg) {

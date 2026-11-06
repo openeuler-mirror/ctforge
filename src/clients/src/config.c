@@ -84,7 +84,21 @@ int ctc_config_load(ctc_config *cfg, const char *path) {
         *eq = 0;
         char *k = line, *v = eq + 1;
         trim(k); trim(v);
-        if (!strcmp(k, "server_host")) strncpy(cfg->server_host, v, sizeof(cfg->server_host) - 1);
+        if (!strcmp(k, "server_host")) {
+            /* 支持逗号分隔的多服务端地址：
+               server_host 存第一个 IP（向后兼容），server_hosts 存完整列表 */
+            strncpy(cfg->server_hosts, v, sizeof(cfg->server_hosts) - 1);
+            const char *comma = strchr(v, ',');
+            if (comma) {
+                size_t n = (size_t)(comma - v);
+                if (n >= sizeof(cfg->server_host))
+                    n = sizeof(cfg->server_host) - 1;
+                memcpy(cfg->server_host, v, n);
+                cfg->server_host[n] = '\0';
+            } else {
+                strncpy(cfg->server_host, v, sizeof(cfg->server_host) - 1);
+            }
+        }
         else if (!strcmp(k, "server_port")) cfg->server_port = atoi(v);
         else if (!strcmp(k, "agent_id")) strncpy(cfg->agent_id, v, sizeof(cfg->agent_id) - 1);
         else if (!strcmp(k, "name")) strncpy(cfg->name, v, sizeof(cfg->name) - 1);
