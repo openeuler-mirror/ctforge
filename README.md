@@ -304,7 +304,7 @@ systemctl enable --now ctforge-agent
 
 ```bash
 # 1. 停止旧服务（根据实际服务名调整）
-sudo systemctl stop ctcontrol-server    # systemd 方式
+sudo systemctl stop legacy-monitor-server  # systemd 方式
 docker compose -f /path/to/old/docker-compose.yml down  # Docker 方式
 
 # 2. 确认端口已释放
