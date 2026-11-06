@@ -88,6 +88,7 @@
 /* 客户端本地配置（可被服务端修改） */
 typedef struct {
     char server_host[128];
+    char server_hosts[512]; /* 逗号分隔的服务端候选 IP 列表（自动切换） */
     int  server_port;
     char agent_id[128];
     char name[128];
