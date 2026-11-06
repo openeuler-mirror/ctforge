@@ -152,33 +152,34 @@ static int ctforge_connect(void)
  * 返回 malloc 的响应字符串，调用方负责 free；失败返回 NULL。
  */
 /*
- * JSON 字符串转义：把 src 中的 " 和 \ 转义，结果写入 dst（最大 dstsize 字节）。
- * 返回写入的字节数（不含 NUL），失败返回 -1。
+ * JSON 字符串转义：把 src 中的 " 和 \ 转义，返回 malloc 的新字符串。
+ * 失败返回 NULL。转义后最长为 2*strlen(src)+1，调用方负责 free。
  */
-static int ctforge_json_escape(char *dst, size_t dstsize, const char *src)
+static char *ctforge_json_escape(const char *src)
 {
+    if (!src)
+        return strdup("");
+    size_t slen = strlen(src);
+    /* 上限校验：防止超大 payload 导致内存耗尽（限制 1MB） */
+    if (slen > 1024 * 1024)
+        return NULL;
+    char *dst = malloc(2 * slen + 1);
+    if (!dst)
+        return NULL;
     size_t off = 0;
-    const char *s = src;
-    while (*s) {
-        const char *esc = NULL;
-        if (*s == '"')
-            esc = "\\\"";
-        else if (*s == '\\')
-            esc = "\\\\";
-        if (esc) {
-            if (off + 2 >= dstsize)
-                return -1;
-            dst[off++] = esc[0];
-            dst[off++] = esc[1];
+    for (const char *s = src; *s; s++) {
+        if (*s == '"') {
+            dst[off++] = '\\';
+            dst[off++] = '"';
+        } else if (*s == '\\') {
+            dst[off++] = '\\';
+            dst[off++] = '\\';
         } else {
-            if (off + 1 >= dstsize)
-                return -1;
             dst[off++] = *s;
         }
-        s++;
     }
     dst[off] = '\0';
-    return (int)off;
+    return dst;
 }
 
 static char *ctforge_rpc(const char *method, const char *params)
@@ -187,10 +188,9 @@ static char *ctforge_rpc(const char *method, const char *params)
     if (fd < 0)
         return NULL;
 
-    /* JSON 转义 params 防止注入 */
-    char params_escaped[4096];
-    if (ctforge_json_escape(params_escaped, sizeof(params_escaped),
-                            params ? params : "") < 0) {
+    /* JSON 转义 params 防止注入（动态分配，支持长参数） */
+    char *params_escaped = ctforge_json_escape(params ? params : "");
+    if (!params_escaped) {
         close(fd);
         return NULL;
     }
@@ -202,9 +202,12 @@ static char *ctforge_rpc(const char *method, const char *params)
     char *req = NULL;
     if (asprintf(&req, fmt, (long)time(NULL), method,
                  params_escaped) < 0) {
+        free(params_escaped);
         close(fd);
         return NULL;
     }
+    free(params_escaped);
+    params_escaped = NULL;
 
     size_t off = 0, len = strlen(req);
     while (off < len) {
