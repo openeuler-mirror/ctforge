@@ -21,7 +21,7 @@ import {
   RootListIcon,
   ServerIcon,
   SettingIcon,
-  ShieldIcon,
+  LayersIcon,
   TaskIcon,
   TerminalIcon,
   ToolsIcon,
@@ -85,7 +85,7 @@ export default [
         path: 'ctforge',
         name: 'AgentCtforge',
         component: () => import('@/pages/monitor/ctforge/index.vue'),
-        meta: { title: { zh_CN: 'CTForge 管理', en_US: 'CTForge'}, perm: 'agent.view', icon: shallowRef(ShieldIcon) },
+        meta: { title: { zh_CN: 'CTForge 管理', en_US: 'CTForge'}, perm: 'agent.view', icon: shallowRef(LayersIcon) },
       },
       {
         path: 'syslog',
