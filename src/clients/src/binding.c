@@ -357,19 +357,33 @@ int ctc_scan_server(ctc_config *cfg, ctc_binding *out) {
     server_cand cands[16];
     int n = scan_lan(cfg, cands, 16);
     if (n <= 0) {
-        /* 回退：尝试配置里的地址 */
-        if (cfg->server_host[0]) {
-            ctc_binding b = {0};
-            if (cfg->bound_server_id[0]) {
-                snprintf(b.bound_server_id, sizeof(b.bound_server_id), "%s", cfg->bound_server_id);
-            }
-            int rc = try_connect_handshake(cfg->server_host, cfg->server_port, cfg, &b, out);
-            if (rc == 0) {
-                if (!cfg->bound_server_id[0] || strcmp(out->bound_server_id, cfg->bound_server_id) == 0) {
-                    return 0;
+        /* 回退：遍历 server_hosts 列表中的每个候选地址 */
+        if (cfg->server_hosts[0]) {
+            char hosts[512];
+            strncpy(hosts, cfg->server_hosts, sizeof(hosts) - 1);
+            hosts[sizeof(hosts) - 1] = '\0';
+            char *saveptr = NULL;
+            for (char *ip = strtok_r(hosts, ",", &saveptr); ip;
+                 ip = strtok_r(NULL, ",", &saveptr)) {
+                while (*ip == ' ' || *ip == '\t') ip++;
+                size_t len = strlen(ip);
+                while (len > 0 && (ip[len-1] == ' ' || ip[len-1] == '\t')) ip[--len] = '\0';
+                if (!len) continue;
+
+                fprintf(stderr, "[ctc-agent] scan fallback: trying %s:%d\n", ip, cfg->server_port);
+                ctc_binding b = {0};
+                if (cfg->bound_server_id[0]) {
+                    snprintf(b.bound_server_id, sizeof(b.bound_server_id), "%s", cfg->bound_server_id);
                 }
+                int rc = try_connect_handshake(ip, cfg->server_port, cfg, &b, out);
+                if (rc == 0) {
+                    if (!cfg->bound_server_id[0] || strcmp(out->bound_server_id, cfg->bound_server_id) == 0) {
+                        fprintf(stderr, "[ctc-agent] scan fallback: connected to %s:%d\n", ip, cfg->server_port);
+                        return 0;
+                    }
+                }
+                if (rc == 1) return 1;
             }
-            if (rc == 1) return 1;
         }
         return -1;
     }
