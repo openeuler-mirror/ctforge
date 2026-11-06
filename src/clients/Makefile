@@ -17,7 +17,7 @@ endif
 CFLAGS += -I$(OSSL_INC)
 PREFIX  ?= /usr/local
 
-SRC := src/agent.c src/net.c src/util.c src/metrics.c src/config.c src/terminal.c src/files.c src/sysadmin.c src/sysops.c src/binding.c src/anomaly.c src/hardware.c src/portforward.c src/tls.c src/discover.c src/uninstall.c
+SRC := src/agent.c src/net.c src/util.c src/metrics.c src/config.c src/terminal.c src/files.c src/sysadmin.c src/sysops.c src/binding.c src/anomaly.c src/hardware.c src/portforward.c src/tls.c src/discover.c src/uninstall.c src/ctforge.c
 OBJ := $(SRC:.c=.o)
 
 all: ctforge-agent
