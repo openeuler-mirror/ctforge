@@ -105,13 +105,13 @@ func (s *Server) deployFingerprint() string {
 //	/download/agent?arch=arm64 → aarch64
 //	/download/agent?arch=amd64 → x86_64
 //
-// 优先找 server/bin/ctforge-agent-{amd64,arm64}，其次 CTC_AGENT_BIN 环境变量
+// 优先找 server/bin/ctforge-agent-{amd64,arm64}，其次 CTF_AGENT_BIN 环境变量
 func (s *Server) handleDownloadAgent(w http.ResponseWriter, r *http.Request) {
 	arch := r.URL.Query().Get("arch")
 
 	// 架构 → 候选路径
 	var candidates []string
-	binDir := os.Getenv("CTC_AGENT_BIN_DIR")
+	binDir := os.Getenv("CTF_AGENT_BIN_DIR")
 	if binDir == "" {
 		binDir = "bin" // 相对 server 工作目录
 	}
@@ -129,7 +129,7 @@ func (s *Server) handleDownloadAgent(w http.ResponseWriter, r *http.Request) {
 		}
 	default:
 		// 未指定：优先 x86_64 兼容旧行为
-		envPath := os.Getenv("CTC_AGENT_BIN")
+		envPath := os.Getenv("CTF_AGENT_BIN")
 		candidates = []string{}
 		if envPath != "" {
 			candidates = append(candidates, envPath)
@@ -616,7 +616,7 @@ func base64Decode(s string) ([]byte, error) { return base64.StdEncoding.DecodeSt
 
 // regKey 从环境变量读取 agent 注册令牌
 func (s *Server) regKey() string {
-	return os.Getenv("CTC_" + "TO" + "KEN")
+	return os.Getenv("CTF_" + "TO" + "KEN")
 }
 
 // ==================== 卸载审批 ====================
