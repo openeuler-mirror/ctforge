@@ -9,6 +9,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <netdb.h>
@@ -16,6 +17,9 @@
 
 /* socket I/O 超时：防止 ctforged 挂起时 agent 永远阻塞 */
 #define CTFORGE_IO_TIMEOUT_SEC 10
+
+#define CTFORGE_CFG_PATH "/etc/ctforge/ctforge.cfg"
+#define CTFORGE_RESP_MAX (256 * 1024)
 
 static int ctforge_set_timeout(int fd)
 {
@@ -28,9 +32,6 @@ static int ctforge_set_timeout(int fd)
         return -1;
     return 0;
 }
-
-#define CTFORGE_CFG_PATH "/etc/ctforge/ctforge.cfg"
-#define CTFORGE_RESP_MAX (256 * 1024)
 
 /* 从 ctforged 配置文件读取 listen 地址（"127.0.0.1:7000" 或 "unix:///path"） */
 static int ctforge_read_listen(char *buf, size_t buflen)
@@ -207,25 +208,93 @@ static char *ctforge_rpc(const char *method, const char *params)
     return resp;
 }
 
-/* 从 ctforged 响应 JSON 中提取 resmsg 字段（原样返回子串） */
+/*
+ * 从 ctforged 响应 JSON 中提取 resmsg 字段并重新序列化。
+ * 手动解析：找到 "resmsg": 后，根据值的第一个字符判断类型：
+ *   - '{' 或 '['：扫描到匹配的闭合括号
+ *   - '"'：扫描到下一个未转义的 '"'
+ *   - 其他（数字/布尔/null）：扫描到 ',' 或 '}'
+ * 不依赖 json-c，避免新增链接依赖。
+ */
 static char *ctforge_extract_resmsg(const char *resp)
 {
     if (!resp)
         return NULL;
+
     const char *key = "\"resmsg\":";
     const char *p = strstr(resp, key);
     if (!p)
         return strdup(resp); /* 没有 resmsg 时返回原文 */
     p += strlen(key);
-    /* 返回从 resmsg 值开始到末尾的内容（保持 JSON 结构） */
-    /* 找匹配的结尾：简单处理——剥离最后一个 '}' */
-    size_t len = strlen(p);
-    if (len > 0 && p[len - 1] == '}')
-        len--;
+
+    /* 跳过空白 */
+    while (*p == ' ' || *p == '\t')
+        p++;
+
+    if (!*p)
+        return strdup(resp);
+
+    const char *start = p;
+    size_t len = 0;
+
+    if (*p == '{' || *p == '[') {
+        /* 对象或数组：找匹配的闭合括号 */
+        int depth = 0;
+        char open = *p, close = (*p == '{') ? '}' : ']';
+        const char *s = p;
+        int in_str = 0, escaped = 0;
+        while (*s) {
+            if (escaped) {
+                escaped = 0;
+            } else if (*s == '\\' && in_str) {
+                escaped = 1;
+            } else if (*s == '"') {
+                in_str = !in_str;
+            } else if (!in_str) {
+                if (*s == open)
+                    depth++;
+                else if (*s == close) {
+                    depth--;
+                    if (depth == 0) {
+                        s++;
+                        break;
+                    }
+                }
+            }
+            s++;
+        }
+        len = (size_t)(s - start);
+    } else if (*p == '"') {
+        /* 字符串：找下一个未转义的引号 */
+        const char *s = p + 1;
+        int escaped = 0;
+        while (*s) {
+            if (escaped) {
+                escaped = 0;
+            } else if (*s == '\\') {
+                escaped = 1;
+            } else if (*s == '"') {
+                s++;
+                break;
+            }
+            s++;
+        }
+        len = (size_t)(s - start);
+    } else {
+        /* 数字/布尔/null：扫描到 ',' 或 '}' 或空白 */
+        const char *s = p;
+        while (*s && *s != ',' && *s != '}' && *s != ' ' && *s != '\t' && *s != '\n')
+            s++;
+        len = (size_t)(s - start);
+    }
+
+    if (len == 0)
+        return strdup(resp);
+
     char *out = malloc(len + 1);
     if (!out)
         return NULL;
-    memcpy(out, p, len);
+    memcpy(out, start, len);
     out[len] = '\0';
     return out;
 }
