@@ -34,8 +34,7 @@ func (s *Server) handleDeployScript(w http.ResponseWriter, r *http.Request) {
 	host := ""
 	if s.deploy != nil && s.deploy.ServerHost != "" {
 		host = s.deploy.ServerHost
-	}
-	if q := r.URL.Query().Get("host"); q != "" {
+	} else if q := r.URL.Query().Get("host"); q != "" {
 		host = q
 	}
 	if host == "" {
@@ -91,8 +90,7 @@ func (s *Server) handleDeployScriptRaw(w http.ResponseWriter, r *http.Request) {
 	host := ""
 	if s.deploy != nil && s.deploy.ServerHost != "" {
 		host = s.deploy.ServerHost
-	}
-	if q := r.URL.Query().Get("host"); q != "" {
+	} else if q := r.URL.Query().Get("host"); q != "" {
 		host = q
 	}
 	if host == "" {
