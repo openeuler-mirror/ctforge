@@ -21,6 +21,8 @@ services:
       - ctforge-data:/var/lib/ctforge
       # 持久化 TLS 证书与密钥（首次启动自动生成，之后保持不变）
       - ctforge-certs:/etc/ctforge
+      # Agent 二进制（供 /download/agent 下载，宿主机编译后放入此目录）
+      - ./src/server/bin:/app/bin:ro
     environment:
       TZ: Asia/Shanghai
       CTF_HTTP: ":8080"
