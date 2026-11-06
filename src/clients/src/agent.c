@@ -505,6 +505,8 @@ static void handle_command(int fd, const ctc_message *msg, ctc_config *cfg, cons
     if (result) {
         const char *type;
         if (!strcmp(t, MSG_PING)) type = "pong";
+        /* ctforge 桥接响应走透传：payload 已含结构化 JSON，不靠子串匹配 */
+        else if (!strncmp(t, "ctf_", 4)) type = MSG_ACK;
         else type = strstr(result, "\"error\"") ? MSG_ERROR : MSG_ACK;
         ctc_send(fd, type, msg->id, msg->session_id, result);
         free(result);
