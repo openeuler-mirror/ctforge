@@ -30,15 +30,20 @@ func (s *Server) handleDeployScript(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusMethodNotAllowed, 40500, "method not allowed")
 		return
 	}
-	host := r.URL.Query().Get("host")
-	if host == "" && s.deploy != nil {
+	// 优先级：批准管理保存的自定义地址 > URL ?host= 参数 > 自动检测
+	host := ""
+	if s.deploy != nil && s.deploy.ServerHost != "" {
 		host = s.deploy.ServerHost
+	}
+	if q := r.URL.Query().Get("host"); q != "" {
+		host = q
 	}
 	if host == "" {
 		host = detectOutboundIP()
 	}
 	p := &deploy.ScriptParams{
 		ServerHost:   host,
+		ServerIPs:    buildServerIPs(host, enumerateServerIPs()),
 		ServerPort:   s.deployPort(),
 		RegKey:       s.regKey(),
 		Fingerprint:  s.deployFingerprint(),
@@ -63,14 +68,39 @@ func (s *Server) handleDeployScript(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// buildServerIPs 构建候选 IP 列表：生效地址放最前，其余枚举地址去重追加
+func buildServerIPs(primary string, all []string) []string {
+	out := []string{}
+	seen := map[string]bool{}
+	if primary != "" {
+		out = append(out, primary)
+		seen[primary] = true
+	}
+	for _, ip := range all {
+		if !seen[ip] {
+			seen[ip] = true
+			out = append(out, ip)
+		}
+	}
+	return out
+}
+
 func (s *Server) handleDeployScriptRaw(w http.ResponseWriter, r *http.Request) {
 	// 供 curl | sh 直接拉取，无需鉴权（脚本不含敏感信息，token 由服务端注入）
-	host := r.URL.Query().Get("host")
+	// 优先级：批准管理保存的自定义地址 > URL ?host= 参数 > 自动检测
+	host := ""
+	if s.deploy != nil && s.deploy.ServerHost != "" {
+		host = s.deploy.ServerHost
+	}
+	if q := r.URL.Query().Get("host"); q != "" {
+		host = q
+	}
 	if host == "" {
 		host = detectOutboundIP()
 	}
 	p := &deploy.ScriptParams{
-		ServerHost: host, ServerPort: s.deployPort(),
+		ServerHost: host, ServerIPs: buildServerIPs(host, enumerateServerIPs()),
+		ServerPort: s.deployPort(),
 		DiscoverPort: 9001, UseTLS: false,
 	}
 	if s.deploy != nil {
