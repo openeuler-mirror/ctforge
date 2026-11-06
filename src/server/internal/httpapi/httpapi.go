@@ -351,6 +351,12 @@ func (s *Server) handleAgentByID(w http.ResponseWriter, r *http.Request) {
 		s.handleNet(w, r, id)
 	case "exec":
 		s.handleExec(w, r, id)
+	case "ctforge":
+		sub := ""
+		if idx := strings.Index(r.URL.Path, "/ctforge/"); idx >= 0 {
+			sub = r.URL.Path[idx+len("/ctforge/"):]
+		}
+		s.handleCtforge(w, r, id, sub)
 	default:
 		fail(w, http.StatusNotFound, 40400, "not found")
 	}
