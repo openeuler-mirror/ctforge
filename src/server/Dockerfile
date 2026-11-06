@@ -24,12 +24,12 @@ COPY --from=backend /out/ctforge-server /usr/local/bin/ctforge-server
 COPY --from=frontend /build/dist /app/static
 
 ENV TZ=Asia/Shanghai \
-    CTC_HTTP=:8080 \
-    CTC_SOCK=:9000 \
-    CTC_STATIC=/app/static \
-    CTC_ACCOUNTS=/var/lib/ctforge/accounts.json \
-    CTC_TLS_CERT=/etc/ctforge/server.crt \
-    CTC_TLS_KEY=/etc/ctforge/server.key
+    CTF_HTTP=:8080 \
+    CTF_SOCK=:9000 \
+    CTF_STATIC=/app/static \
+    CTF_ACCOUNTS=/var/lib/ctforge/accounts.json \
+    CTF_TLS_CERT=/etc/ctforge/server.crt \
+    CTF_TLS_KEY=/etc/ctforge/server.key
 
 EXPOSE 8080/tcp 9000/tcp 9001/udp
 VOLUME ["/var/lib/ctforge", "/etc/ctforge"]
