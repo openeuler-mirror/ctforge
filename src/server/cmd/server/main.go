@@ -267,6 +267,7 @@ func main() {
 		Engine: engine, Deploy: dep,
 		Perms: permsMgr, Hist: histMgr, PF: pfMgr,
 		AI: aiAnalyzer, AICfg: aiCfg,
+		DataDir: *dataDir,
 	})
 
 	go func() {
