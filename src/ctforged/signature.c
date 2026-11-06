@@ -194,7 +194,7 @@ int sm2_sign(const char *msg, size_t msg_len, const char *privkey_pem_path,
 
 	int ret = -5;
 
-	if (EVP_DigestSignInit(md_ctx, NULL, EVP_sm3(), NULL, pkey) <= 0)
+	if (EVP_DigestSignInit(md_ctx, NULL, EVP_sha256(), NULL, pkey) <= 0)
 		goto cleanup;
 
 	if (EVP_DigestSign(md_ctx, NULL, sig_len, (const unsigned char *)msg,
@@ -249,7 +249,7 @@ int sm2_verify(const char *msg, size_t msg_len, const char *pubkey_pem_path,
 
 	int ret = -5;
 
-	if (EVP_DigestVerifyInit(md_ctx, NULL, EVP_sm3(), NULL, pkey) <= 0)
+	if (EVP_DigestVerifyInit(md_ctx, NULL, EVP_sha256(), NULL, pkey) <= 0)
 		goto cleanup;
 
 	if (EVP_DigestVerify(md_ctx, sig, sig_len, (const unsigned char *)msg,
@@ -280,11 +280,11 @@ int sm2_verify_builtinkey(const char *msg, size_t msg_len, const char *sig,
 	if (!msg || !sig || sm2_public_key_len <= 0)
 		return -1;
 
-	ctx = EVP_PKEY_CTX_new_id(EVP_PKEY_SM2, NULL);
+	ctx = EVP_PKEY_CTX_new_id(EVP_PKEY_EC, NULL);
 	if (!ctx)
 		return -2;
 
-	params[0] = OSSL_PARAM_construct_utf8_string("group", (char *)"SM2", 0);
+	params[0] = OSSL_PARAM_construct_utf8_string("group", (char *)"prime256v1", 0);
 
 	params[1] = OSSL_PARAM_construct_octet_string(
 		"pub", (void *)sm2_public_key, sm2_public_key_len);
@@ -316,7 +316,7 @@ int sm2_verify_builtinkey(const char *msg, size_t msg_len, const char *sig,
 	}
 
 	// Initialize verification with SM3 hash
-	if (EVP_DigestVerifyInit(md_ctx, NULL, EVP_sm3(), NULL, pkey) != 1) {
+	if (EVP_DigestVerifyInit(md_ctx, NULL, EVP_sha256(), NULL, pkey) != 1) {
 		ret = -9;
 		goto cleanup;
 	}

@@ -57,7 +57,7 @@ int sm2_sign(const char *msg, size_t msg_len,
 
 	int ret = -5;
 
-	if (EVP_DigestSignInit(md_ctx, NULL, EVP_sm3(), NULL, pkey) <= 0) {
+	if (EVP_DigestSignInit(md_ctx, NULL, EVP_sha256(), NULL, pkey) <= 0) {
 		goto cleanup;
 	}
 
@@ -127,7 +127,7 @@ int sm2_verify(const char *msg, size_t msg_len,
 
 	int ret = -5;
 
-	if (EVP_DigestVerifyInit(md_ctx, NULL, EVP_sm3(), NULL, pkey) <= 0) {
+	if (EVP_DigestVerifyInit(md_ctx, NULL, EVP_sha256(), NULL, pkey) <= 0) {
 		goto cleanup;
 	}
 

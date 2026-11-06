@@ -4,7 +4,7 @@ ifeq ($(BPF_SPIN_LOCK),)
 EXTRA_FLAGS += -D__DEFINE_BPF_SPIN_LOCK__
 endif
 
-LIBBPFA      := ../libbpf/libbpf.a
+LIBBPFA := -lbpf
 PRIVATE_KEY := ../key/CTFORGED/private.pem
 PUBLIC_KEY   := ../key/CTFORGED/public.pem
 BPFTOOL      := /tmp/bpftool
@@ -12,7 +12,7 @@ BPFTOOLTGZ   := ../tools/$(ARCH)/bpftool.tar.gz
 PHONY        := default
 CC           := clang
 CFLAGS       := -g -O0 -Wno-deprecated-declarations -I. $(EXTRA_FLAGS)
-LDFLAGS      := -lelf -lz -lpthread -ldl -lssl -lcrypto -llzma -luv -ljson-c
+LDFLAGS := -lelf -lz -lpthread -ldl -lssl -lcrypto -llzma -luv -ljson-c -lbpf
 SRCS         := ctforgectl.c ctforged.c config.c \
                 pool.c log.c tools.c payload.c netlink.c signature.c \
                 server.c error.c
@@ -27,7 +27,7 @@ build: ctforged ctforgectl
 
 
 $(LIBBPFA):
-	@make -C ../libbpf libbpf.a
+	@true
 	@echo "-> libbpf build success"
 
 
