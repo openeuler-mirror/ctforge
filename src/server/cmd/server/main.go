@@ -37,21 +37,21 @@ import (
 
 func main() {
 	var (
-		httpAddr  = flag.String("http", envOr("CTC_HTTP", ":8080"), "HTTP/WebSocket listen address")
-		sockAddr  = flag.String("sock", envOr("CTC_SOCK", ":9000"), "agent socket listen address")
-		token     = flag.String("token", envOr("CTC_TOKEN", ""), "shared token for agent register (empty = no auth)")
-		staticDir = flag.String("static", envOr("CTC_STATIC", ""), "optional: dir of built frontend (dist) to serve")
-		tlsCert   = flag.String("tls-cert", envOr("CTC_TLS_CERT", "server.crt"), "TLS cert file for agent channel (auto-generated if missing)")
-		tlsKey    = flag.String("tls-key", envOr("CTC_TLS_KEY", "server.key"), "TLS key file for agent channel (auto-generated if missing)")
-		tlsSAN    = flag.String("tls-san", envOr("CTC_TLS_SAN", ""), "extra SANs (comma separated host/IP) for auto-generated cert")
-		noTLS     = flag.Bool("no-tls", envOr("CTC_NO_TLS", "") == "1", "disable TLS on agent channel (plaintext, dev only)")
-		discPort  = flag.Int("discover", intEnvOr("CTC_DISCOVER", discover.DefaultPort), "UDP port for LAN agent discovery (0=disable)")
-		sshPort   = flag.String("ssh", envOr("CTC_SSH", ":2222"), "SSH jump server listen address (empty=disable)")
+		httpAddr  = flag.String("http", envOr("CTF_HTTP", ":8080"), "HTTP/WebSocket listen address")
+		sockAddr  = flag.String("sock", envOr("CTF_SOCK", ":9000"), "agent socket listen address")
+		token     = flag.String("token", envOr("CTF_TOKEN", ""), "shared token for agent register (empty = no auth)")
+		staticDir = flag.String("static", envOr("CTF_STATIC", ""), "optional: dir of built frontend (dist) to serve")
+		tlsCert   = flag.String("tls-cert", envOr("CTF_TLS_CERT", "server.crt"), "TLS cert file for agent channel (auto-generated if missing)")
+		tlsKey    = flag.String("tls-key", envOr("CTF_TLS_KEY", "server.key"), "TLS key file for agent channel (auto-generated if missing)")
+		tlsSAN    = flag.String("tls-san", envOr("CTF_TLS_SAN", ""), "extra SANs (comma separated host/IP) for auto-generated cert")
+		noTLS     = flag.Bool("no-tls", envOr("CTF_NO_TLS", "") == "1", "disable TLS on agent channel (plaintext, dev only)")
+		discPort  = flag.Int("discover", intEnvOr("CTF_DISCOVER", discover.DefaultPort), "UDP port for LAN agent discovery (0=disable)")
+		sshPort   = flag.String("ssh", envOr("CTF_SSH", ":2222"), "SSH jump server listen address (empty=disable)")
 	)
-	stdAuthFile := flag.String("accounts", envOr("CTC_ACCOUNTS", "accounts.json"), "accounts file for web console users")
-	dataDir := flag.String("data", envOr("CTC_DATA", "."), "data dir for server_id / tasks / rules")
-	serverName := flag.String("name", envOr("CTC_NAME", ""), "server display name (default hostname)")
-	agentBin := flag.String("agent-bin", envOr("CTC_AGENT_BIN", ""), "path to agent binary served at /download/agent")
+	stdAuthFile := flag.String("accounts", envOr("CTF_ACCOUNTS", "accounts.json"), "accounts file for web console users")
+	dataDir := flag.String("data", envOr("CTF_DATA", "."), "data dir for server_id / tasks / rules")
+	serverName := flag.String("name", envOr("CTF_NAME", ""), "server display name (default hostname)")
+	agentBin := flag.String("agent-bin", envOr("CTF_AGENT_BIN", ""), "path to agent binary served at /download/agent")
 	flag.Parse()
 
 	st := store.New(*dataDir)
@@ -258,7 +258,7 @@ func main() {
 		Fingerprint:  tlsFingerprint, // 让安装脚本携带证书指纹，agent 才能 pinning
 	}
 	if *agentBin != "" {
-		os.Setenv("CTC_AGENT_BIN", *agentBin)
+		os.Setenv("CTF_AGENT_BIN", *agentBin)
 	}
 
 	api := httpapi.New(httpapi.Deps{

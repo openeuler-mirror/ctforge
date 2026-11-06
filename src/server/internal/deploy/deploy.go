@@ -57,7 +57,7 @@ if [ "$(id -u)" != "0" ]; then
 fi
 
 # ---- 幂等检测：已在运行则跳过（避免重复安装/重复进程）----
-if [ "${CTC_FORCE:-0}" != "1" ]; then
+if [ "${CTF_FORCE:-0}" != "1" ]; then
     if [ -f /etc/ctforge/agent.conf ] && grep -q '^server_host=' /etc/ctforge/agent.conf 2>/dev/null; then
         for b in /usr/local/bin/ctforge-agent /usr/bin/ctforge-agent /bin/ctforge-agent /opt/bin/ctforge-agent; do
             if [ -x "$b" ]; then
@@ -69,7 +69,7 @@ if [ "${CTC_FORCE:-0}" != "1" ]; then
                 elif [ -x /etc/init.d/ctforge-agent ]; then
                     /etc/init.d/ctforge-agent start >/dev/null 2>&1 || true
                 fi
-                echo "==> 跳过安装（幂等）。如需强制重装：sudo CTC_FORCE=1 sh <script>"
+                echo "==> 跳过安装（幂等）。如需强制重装：sudo CTF_FORCE=1 sh <script>"
                 exit 0
             fi
         done
