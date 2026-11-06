@@ -98,6 +98,88 @@ func (s *Server) deployFingerprint() string {
 	return ""
 }
 
+// handleDeployConfig 管理批准管理中的部署配置（自定义下载地址）
+// GET  返回当前配置 + 服务端所有非回环 IP
+// PUT  保存自定义下载地址（空字符串恢复自动检测）
+func (s *Server) handleDeployConfig(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		ips := enumerateServerIPs()
+		var customHost string
+		if s.deploy != nil {
+			customHost = s.deploy.ServerHost
+		}
+		ok(w, map[string]any{
+			"server_ips":       ips,
+			"custom_host":      customHost,
+			"auto_detect_host": detectOutboundIP(),
+			"download_url":     s.deployDownloadURL(),
+		})
+
+	case http.MethodPut:
+		sess := sessionFrom(r.Context())
+		if sess == nil || !requireRole(sess, auth.RoleAdmin) {
+			fail(w, http.StatusForbidden, 40300, "权限不足")
+			return
+		}
+		var body struct {
+			ServerHost string `json:"server_host"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			fail(w, http.StatusBadRequest, 40001, "invalid body")
+			return
+		}
+		if s.deploy != nil {
+			s.deploy.ServerHost = body.ServerHost
+			s.auth.AddAudit(sess.Username, "deploy_config", "server_host", clientIP(r), true, body.ServerHost)
+		}
+		ok(w, map[string]any{"ok": true, "server_host": body.ServerHost})
+
+	default:
+		fail(w, http.StatusMethodNotAllowed, 40500, "method not allowed")
+	}
+}
+
+// enumerateServerIPs 枚举服务端所有非回环 IPv4 地址
+func enumerateServerIPs() []string {
+	var ips []string
+	ifs, err := net.Interfaces()
+	if err != nil {
+		return ips
+	}
+	seen := map[string]bool{}
+	for _, i := range ifs {
+		// 跳过 down 的接口和回环
+		if i.Flags&net.FlagUp == 0 || i.Flags&net.FlagLoopback != 0 {
+			continue
+		}
+		addrs, err := i.Addrs()
+		if err != nil {
+			continue
+		}
+		for _, a := range addrs {
+			ipn, ok := a.(*net.IPNet)
+			if !ok || ipn.IP.IsLoopback() || ipn.IP.To4() == nil {
+				continue
+			}
+			ip := ipn.IP.String()
+			if !seen[ip] {
+				seen[ip] = true
+				ips = append(ips, ip)
+			}
+		}
+	}
+	return ips
+}
+
+// deployDownloadURL 当前生效的下载地址（优先批准管理中保存的地址）
+func (s *Server) deployDownloadURL() string {
+	if s.deploy != nil && s.deploy.ServerHost != "" {
+		return fmt.Sprintf("http://%s:8080/download/agent", s.deploy.ServerHost)
+	}
+	return fmt.Sprintf("http://%s:8080/download/agent", detectOutboundIP())
+}
+
 // handleDownloadAgent 下载 agent 二进制
 // handleDownloadAgent 下载 agent 二进制，按架构参数分发
 // 支持：/download/agent           → x86_64（默认，向后兼容）
