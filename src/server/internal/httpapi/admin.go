@@ -131,6 +131,7 @@ func (s *Server) handleDeployConfig(w http.ResponseWriter, r *http.Request) {
 		}
 		if s.deploy != nil {
 			s.deploy.ServerHost = body.ServerHost
+			s.saveDeployConfig()
 			s.auth.AddAudit(sess.Username, "deploy_config", "server_host", clientIP(r), true, body.ServerHost)
 		}
 		ok(w, map[string]any{"ok": true, "server_host": body.ServerHost})
@@ -178,6 +179,50 @@ func (s *Server) deployDownloadURL() string {
 		return fmt.Sprintf("http://%s:8080/download/agent", s.deploy.ServerHost)
 	}
 	return fmt.Sprintf("http://%s:8080/download/agent", detectOutboundIP())
+}
+
+// saveDeployConfig 持久化部署配置到 deploy_config.json
+func (s *Server) saveDeployConfig() {
+	if s.dataDir == "" || s.deploy == nil {
+		return
+	}
+	cfg := struct {
+		ServerHost string `json:"server_host"`
+	}{
+		ServerHost: s.deploy.ServerHost,
+	}
+	data, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return
+	}
+	path := filepath.Join(s.dataDir, "deploy_config.json")
+	// 原子写入：先写临时文件再 rename
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, data, 0o600); err != nil {
+		return
+	}
+	_ = os.Rename(tmp, path)
+}
+
+// loadDeployConfig 启动时从 deploy_config.json 恢复自定义地址
+func (s *Server) loadDeployConfig() {
+	if s.dataDir == "" || s.deploy == nil {
+		return
+	}
+	path := filepath.Join(s.dataDir, "deploy_config.json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return // 文件不存在，静默忽略
+	}
+	var cfg struct {
+		ServerHost string `json:"server_host"`
+	}
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		return
+	}
+	if cfg.ServerHost != "" {
+		s.deploy.ServerHost = cfg.ServerHost
+	}
 }
 
 // handleDownloadAgent 下载 agent 二进制

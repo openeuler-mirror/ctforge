@@ -41,6 +41,7 @@ type Server struct {
 	aiCfg     *ai.Config
 	ai        *ai.Analyzer
 	aiCfgPath string
+	dataDir   string // 运行时数据目录（持久化 deploy_config 等）
 }
 
 // Deps 服务端依赖注入
@@ -59,6 +60,7 @@ type Deps struct {
 	AI        *ai.Analyzer
 	AICfg     *ai.Config
 	AICfgPath string
+	DataDir   string // 运行时数据目录（持久化 deploy_config.json）
 }
 
 func New(d Deps) *Server {
@@ -69,8 +71,10 @@ func New(d Deps) *Server {
 		engine: d.Engine, deploy: d.Deploy,
 		perms: d.Perms, hist: d.Hist, pf: d.PF,
 		aiCfg: d.AICfg, ai: d.AI, aiCfgPath: d.AICfgPath,
+		dataDir: d.DataDir,
 	}
 	s.routes()
+	s.loadDeployConfig()
 	return s
 }
 
