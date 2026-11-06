@@ -150,6 +150,7 @@ func (s *Server) routes() {
 	// 部署
 	s.mux.HandleFunc("/api/deploy/script", s.withAuth(auth.RoleAdmin, s.handleDeployScript))
 	s.mux.HandleFunc("/api/deploy/script.sh", s.handleDeployScriptRaw)
+	s.mux.HandleFunc("/api/deploy/config", s.withAuth(auth.RoleAdmin, s.handleDeployConfig))
 	s.mux.HandleFunc("/download/agent", s.handleDownloadAgent)
 
 	// 批准管理

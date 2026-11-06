@@ -6,15 +6,17 @@ package deploy
 
 import (
 	"fmt"
+	"strings"
 )
 
 // ScriptParams 生成安装脚本所需参数
 type ScriptParams struct {
-	ServerHost   string // 服务端主机（IP 或域名）
-	ServerPort   int    // 控制通道端口（默认 9000）
-	RegKey       string // 注册令牌
-	Fingerprint  string // TLS 证书指纹
-	DownloadURL  string // agent 二进制下载地址（默认走服务端 /download/agent）
+	ServerHost   string   // 服务端主机（IP 或域名），批准管理中可自定义
+	ServerIPs    []string // 服务端所有非回环 IP（自动枚举，agent 自动切换）
+	ServerPort   int      // 控制通道端口（默认 9000）
+	RegKey       string   // 注册令牌
+	Fingerprint  string   // TLS 证书指纹
+	DownloadURL  string   // agent 二进制下载地址（默认走服务端 /download/agent）
 	ServerID     string
 	DiscoverPort int
 	UseTLS       bool
@@ -41,6 +43,10 @@ func GenScript(p *ScriptParams) string {
 		dl = fmt.Sprintf("http://%s:8080/download/agent", p.ServerHost)
 	}
 
+	serverHosts := p.ServerHost
+	if len(p.ServerIPs) > 0 {
+		serverHosts = strings.Join(p.ServerIPs, ",")
+	}
 	return fmt.Sprintf(`#!/bin/sh
 # ctforge agent 一键安装脚本
 # 支持发行版：Fedora/RHEL/CentOS/Debian/Ubuntu/openSUSE/Alpine
@@ -170,6 +176,8 @@ log_level=1
 # 批准制：agent 会主动广播，服务端批准后才会正式接入
 # 绑定的服务端 ID（批准后写入，agent 重连时校验）
 bound_server_id=
+# 服务端候选地址列表（逗号分隔，agent 自动切换）
+# server_host 为空时，agent 会依次尝试此列表
 EOF
 
 # ---- 按 init 系统注册自启动服务 ----
@@ -265,7 +273,7 @@ echo "    服务端将在控制台的【批准管理】中看到本机（%s）�
 echo "    日志查看：journalctl -u ctforge-agent -f 或 tail -f /var/log/ctforge-agent.log"
 `,
 		dl,
-		p.ServerHost, port, useTLS, p.Fingerprint, p.RegKey, discPort, p.ServerHost)
+		serverHosts, port, useTLS, p.Fingerprint, p.RegKey, discPort, p.ServerHost)
 }
 
 // GenCurlCommand 生成一行 curl 命令（用户直接粘贴执行）
