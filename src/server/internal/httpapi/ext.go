@@ -587,7 +587,7 @@ func (s *Server) handleTopology(w http.ResponseWriter, r *http.Request) {
 		serverName = s.ident.ServerName()
 	}
 	if serverName == "" {
-		serverName = "ctforge Server"
+		serverName = "CTForge Server"
 	}
 	nodes := make([]map[string]any, 0)
 	edges := make([]map[string]any, 0)

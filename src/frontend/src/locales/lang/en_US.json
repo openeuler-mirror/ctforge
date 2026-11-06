@@ -1,7 +1,7 @@
 {
   "lang": "English",
   "common": {
-    "appName": "ctforge",
+    "appName": "CTForge",
     "copyright": "Copyright © 2021-2025 Tencent. All Rights Reserved",
     "conjunction": "and",
     "admin": "admin"
@@ -639,8 +639,8 @@
         "sendVerifyCode": "Send verification code",
         "resendCountdown": "Resend in {count} seconds",
         "agreeTerms": "I have read and agree to",
-        "serviceTerms": "ctforge Service Terms",
-        "privacyStatement": "ctforge Privacy Statement",
+        "serviceTerms": "CTForge Service Terms",
+        "privacyStatement": "CTForge Privacy Statement",
         "registerBtn": "Register",
         "useEmailRegister": "Register with email",
         "usePhoneRegister": "Register with phone",
@@ -710,7 +710,7 @@
         "title": "browser is incompatible",
         "subtitle": "the browser version you are using is too outdated to open the current webpage.",
         "back": "Back to homepage",
-        "recommend": "ctforge recommend the following browser"
+        "recommend": "CTForge recommend the following browser"
       },
       "networkError": {
         "title": "Network Error",

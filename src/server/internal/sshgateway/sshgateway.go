@@ -203,7 +203,7 @@ func (s *Server) handleConn(conn net.Conn) {
 				Extensions: map[string]string{"user": acct.Username, "display": acct.DisplayName},
 			}, nil
 		},
-		ServerVersion: "SSH-2.0-ctforge-JumpServer",
+		ServerVersion: "SSH-2.0-CTForge-JumpServer",
 	}
 	cfg.AddHostKey(s.hostKey)
 
@@ -264,7 +264,7 @@ func (s *Server) handleChannel(sshConn ssh.Conn, user string, ch ssh.NewChannel)
 		if req.Type == "exec" {
 			// 不支持直接 exec，提示用交互模式
 			req.Reply(true, nil)
-			fmt.Fprintln(channel, "ctforge JumpServer: 请使用交互式 shell（不加命令），输入序号连接主机")
+			fmt.Fprintln(channel, "CTForge JumpServer: 请使用交互式 shell（不加命令），输入序号连接主机")
 			channel.Close()
 			continue
 		}
@@ -297,7 +297,7 @@ func (s *Server) onlineAgents() []*store.Agent {
 // showBanner 显示欢迎横幅
 func showBanner(w io.Writer, user string) {
 	fmt.Fprintf(w, "\r\n\x1b[1;36m╔══════════════════════════════════════════════════════════════╗\x1b[0m\r\n")
-	fmt.Fprintf(w, "\x1b[1;36m║\x1b[0m  \x1b[1;33mctforge JumpServer\x1b[0m  \x1b[2mSSH 跳板机\x1b[0m                      \x1b[1;36m║\x1b[0m\r\n")
+	fmt.Fprintf(w, "\x1b[1;36m║\x1b[0m  \x1b[1;33mCTForge JumpServer\x1b[0m  \x1b[2mSSH 跳板机\x1b[0m                      \x1b[1;36m║\x1b[0m\r\n")
 	fmt.Fprintf(w, "\x1b[1;36m╚══════════════════════════════════════════════════════════════╝\x1b[0m\r\n")
 	fmt.Fprintf(w, "  欢迎, \x1b[1;32m%s\x1b[0m\r\n\r\n", user)
 }

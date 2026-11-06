@@ -1,7 +1,7 @@
 {
   "lang": "简体中文",
   "common": {
-    "appName": "ctforge",
+    "appName": "CTForge",
     "copyright": "Copyright © 2021-2025 Tencent. All Rights Reserved",
     "conjunction": "和",
     "admin": "admin"
@@ -198,7 +198,7 @@
         "item6": "新余市办公用户采购项目"
       },
       "buyTend": {
-        "item1": "ctforge 团队",
+        "item1": "CTForge 团队",
         "item2": "大润发有限公司",
         "item3": "四川海底捞股份有限公司",
         "item4": "索尼（中国）有限公司",
@@ -270,7 +270,7 @@
       "sampleData": {
         "contractName": "总部办公用品采购项目",
         "status": "履行中",
-        "company": "ctforge 团队",
+        "company": "CTForge 团队",
         "employee": "欧尚",
         "fileName": "总部办公用品采购项目合同.pdf"
       },
@@ -641,8 +641,8 @@
         "sendVerifyCode": "发送验证码",
         "resendCountdown": "{count}秒后可重发",
         "agreeTerms": "我已阅读并同意",
-        "serviceTerms": "ctforge 服务协议",
-        "privacyStatement": "ctforge 隐私声明",
+        "serviceTerms": "CTForge 服务协议",
+        "privacyStatement": "CTForge 隐私声明",
         "registerBtn": "注册",
         "useEmailRegister": "使用邮箱注册",
         "usePhoneRegister": "使用手机号注册",
@@ -652,7 +652,7 @@
           "emailFormat": "请输入正确的邮箱",
           "password": "密码必填",
           "verifyCode": "验证码必填",
-          "agreeTerms": "请同意ctforge 服务协议和ctforge 隐私声明"
+          "agreeTerms": "请同意CTForge 服务协议和CTForge 隐私声明"
         },
         "messages": {
           "registerSuccess": "注册成功"
@@ -712,7 +712,7 @@
         "title": "浏览器不兼容",
         "subtitle": "抱歉，您正在使用的浏览器版本过低，无法打开当前网页。",
         "back": "回到首页",
-        "recommend": "ctforge 推荐以下主流浏览器"
+        "recommend": "CTForge 推荐以下主流浏览器"
       },
       "networkError": {
         "title": "网络异常",

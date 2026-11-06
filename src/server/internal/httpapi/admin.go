@@ -489,7 +489,7 @@ func (s *Server) handleNotifyTest(w http.ResponseWriter, r *http.Request) {
 	}
 	sender := notify.NewSender()
 	msg := &notify.Message{
-		Title:   "ctforge 测试通知",
+		Title:   "CTForge 测试通知",
 		Content: "这是一条测试消息，收到说明通知渠道配置正确。",
 		Level:   "info",
 		AgentID: "system",
