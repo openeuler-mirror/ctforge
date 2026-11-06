@@ -116,6 +116,7 @@ import {
   ctforgeModCmd,
 } from '@/api/ctforge';
 import { http } from '@/api/agent';
+import type { Agent } from '@/api/agent';
 import type { PrimaryTableCol } from 'tdesign-vue-next';
 
 // ---------- 状态 ----------
@@ -150,9 +151,8 @@ const moduleColumns: PrimaryTableCol[] = [
 async function loadAgents() {
   loadingAgents.value = true;
   try {
-    const res = await http.get<never, { agents: { agent_id: string; name: string; online: boolean }[] }>('/agents');
-    const list = res.agents || [];
-    agentOptions.value = list
+    const list = await http.get<never, Agent[]>('/agents');
+    agentOptions.value = (list || [])
       .filter((a) => a.online)
       .map((a) => ({ label: a.name || a.agent_id, value: a.agent_id }));
     if (!currentAgent.value && agentOptions.value.length > 0) {
