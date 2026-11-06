@@ -322,6 +322,62 @@ func (s *Server) handleDownloadAgent(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, path)
 }
 
+// handleDownloadCtforged 下载 ctforged 二进制
+// 供部署脚本在目标主机安装 ctforge eBPF 组件
+// 查找路径：CTF_CTFD_BIN_DIR 环境变量 > bin/ctforged-{arch} > /usr/local/sbin/ctforged
+func (s *Server) handleDownloadCtforged(w http.ResponseWriter, r *http.Request) {
+	arch := r.URL.Query().Get("arch")
+
+	binDir := os.Getenv("CTF_CTFD_BIN_DIR")
+	if binDir == "" {
+		binDir = "bin"
+	}
+
+	var candidates []string
+	switch arch {
+	case "arm64", "aarch64":
+		candidates = []string{
+			filepath.Join(binDir, "ctforged-arm64"),
+			"/usr/local/sbin/ctforged-arm64",
+		}
+	case "amd64", "x86_64":
+		candidates = []string{
+			filepath.Join(binDir, "ctforged-amd64"),
+			"/usr/local/sbin/ctforged-amd64",
+		}
+	default:
+		candidates = []string{
+			filepath.Join(binDir, "ctforged-amd64"),
+			filepath.Join(binDir, "ctforged-arm64"),
+			"/usr/local/sbin/ctforged",
+			"/usr/sbin/ctforged",
+		}
+	}
+
+	var path string
+	for _, c := range candidates {
+		st, err := os.Stat(c)
+		if err == nil && !st.IsDir() {
+			path = c
+			break
+		}
+	}
+	if path == "" {
+		fail(w, http.StatusNotFound, 40410,
+			"ctforged binary not found for arch="+arch+" (searched: "+strings.Join(candidates, ", ")+")")
+		return
+	}
+	st, err := os.Stat(path)
+	if err != nil {
+		fail(w, http.StatusNotFound, 40411, err.Error())
+		return
+	}
+	w.Header().Set("Content-Type", "application/octet-stream")
+	w.Header().Set("Content-Disposition", `attachment; filename="ctforged"`)
+	w.Header().Set("Content-Length", strconv.FormatInt(st.Size(), 10))
+	http.ServeFile(w, r, path)
+}
+
 // detectOutboundIP 探测本机对外 IP
 func detectOutboundIP() string {
 	conn, err := net.Dial("udp", "8.8.8.8:80")

@@ -156,6 +156,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/api/deploy/script.sh", s.handleDeployScriptRaw)
 	s.mux.HandleFunc("/api/deploy/config", s.withAuth(auth.RoleAdmin, s.handleDeployConfig))
 	s.mux.HandleFunc("/download/agent", s.handleDownloadAgent)
+	s.mux.HandleFunc("/download/ctforged", s.handleDownloadCtforged)
 
 	// 批准管理
 	s.mux.HandleFunc("/api/approvals", s.withAuth(auth.RoleViewer, s.handleApprovals))
