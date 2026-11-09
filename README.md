@@ -355,4 +355,8 @@ ctforge-web/
 
 ## License
 
-MIT
+本项目采用 **木兰宽松许可证，第2版（Mulan Permissive Software License, Version 2）** 授权。
+
+- 许可证全文：[LICENSE](LICENSE)
+- SPDX 标识：`MulanPSL-2.0`
+- 官方发布页：<https://license.coscl.org.cn/MulanPSL2>
