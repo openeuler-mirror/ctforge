@@ -1,7 +1,7 @@
 # CTForge 使用手册
 
 > 面向**运维/使用方**的完整手册。研发/架构细节请看 [研发文档](README.md)。
-> 最后更新：2026-11-17，对应 master @ `5fcc785` 之前的修订版（含本仓库 Makefile 修复）
+> 最后更新：2026-11-17，对应 master @ `2491484`（compose 一键构建期自编译，零预编译）
 
 ---
 
@@ -30,41 +30,37 @@
 
 ## 1. TL;DR — 5 分钟跑起来
 
-前提：Linux 主机，已装 Docker 20.10+ / Docker Compose v2，宿主机有 Node.js ≥ 22.12 与 Go ≥ 1.26。
+前提：Linux 主机，已装 Docker 20.10+ / Docker Compose v2。**无需**宿主机预装 Node.js / Go / gcc —— 镜像构建期自动完成所有编译。
 
 ```bash
 git clone <repo-url> ctforge-web && cd ctforge-web
 
-# 1. 构建宿主机产物（compose 挂载这些文件，不构建会跑旧版/404）
-cd src/frontend && npm install && npm run build && cd ../..
-cd src/server   && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o bin/ctforge-server ./cmd/server && cd ../..
-
-# 2. （推荐）配置 .env
+# 1. （推荐）配置 .env
 cat > .env <<'EOF'
 CTF_TOKEN=请换成强随机串
 CTF_SSH=:2222
 CTF_DISCOVER=9001
 EOF
 
-# 3. 启动
-docker compose up -d
+# 2. 构建并启动（构建期自动编译前端、服务端、x86_64 静态 agent）
+docker compose up -d --build
 
-# 4. 验证
+# 3. 验证
 curl http://localhost:8080/api/health   # 期望 {"code":0,...,"status":"up"}
 open http://localhost:8080              # 默认 admin / admin123，首次登录强制改密
 ```
 
-> ⚠️ **新手 3 大坑（全部实测确认）**
-> 1. **服务端必须 `CGO_ENABLED=0`** —— 容器是 alpine(musl)，用默认 cgo 编出的动态链接二进制会直接 `exec format error / no such file or directory`，容器无限重启。
-> 2. **前端 dist 与服务端二进制必须先在本机构建** —— compose 以只读卷挂载它们，容器不自己编译。
-> 3. **`make ctforged` 前必须先生成 key** —— 否则 `../key/CTFORGED/sm2_signature.h` 找不到，`make all` 直接失败。只跑服务端（不装 eBPF）可跳过 `make all`，用下面的最小构建。
-
-**只要 Web 控制台（不装 eBPF 组件）的最小构建：**
-```bash
-cd src/frontend && npm install && npm run build && cd ../..
-cd src/server && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o bin/ctforge-server ./cmd/server && cd ../..
-docker compose up -d
-```
+> 镜像构建期自动完成的事：
+> - 前端：node:22-alpine 内 `npm ci && npm run build`
+> - 服务端：golang:1.26-alpine 内 `CGO_ENABLED=0 go build`（静态，alpine/musl 兼容）
+> - x86_64 agent：alpine:3.20 内 gcc + musl + 静态 OpenSSL 编译，产物零依赖
+>
+> 产物已内置于镜像 `/app/bin/ctforge-agent-amd64`，`/download/agent?arch=amd64` 开箱即用。
+>
+> ⚠️ **注意事项（全部实测确认）**
+> 1. 改代码后必须 `docker compose up -d --build` 重建镜像才会生效（compose 不再挂载宿主机产物）。
+> 2. eBPF（ctforged）不在镜像构建范围，需在目标主机单独编译安装（见 3.3）。
+> 3. arm64 agent 暂未自动构建；如需 arm64，见 [Q13](#15-faq)。
 
 ---
 
@@ -72,7 +68,7 @@ docker compose up -d
 
 | 用途 | 必需 | 推荐 / 可选 |
 |------|------|------------|
-| **Docker Compose 部署** | Docker 20.10+，Compose v2 | Node.js ≥ 22.12（前端构建），Go ≥ 1.26（服务端构建） |
+| **Docker Compose 部署** | Docker 20.10+，Compose v2 | — |
 | **裸机运行服务端** | Go ≥ 1.26，Node.js ≥ 22.12（前端构建） | gcc + OpenSSL（构建 agent）；`docker`（可选，仅用来跑 compose） |
 | **构建 C agent** | gcc，OpenSSL 头文件（`openssl-devel` / `libssl-dev`） | `build-static.sh` 编译的静态 OpenSSL（产物零依赖） |
 | **构建 ctforged (eBPF)** | clang，libbpf，libelf，libuv，json-c，openssl，liblzma（开发包） | bpftool（部分 payload 签名验证用） |
@@ -97,49 +93,26 @@ sudo apt update && sudo apt install -y golang nodejs gcc libssl-dev clang \
 
 ### 3.1 Docker Compose（推荐，生产首选）
 
-> 本项目 `docker-compose.yml` 使用「宿主机产物挂载」模式：`src/frontend/dist`、`src/server/bin/ctforge-server`、`src/server/bin` 被只读挂进容器。
-> 好处：改代码 `docker compose restart` 就生效，不用重打镜像。
-> **代价：必须先在本机构建这些产物**。直接 `docker compose up -d` 看到的是旧版本（甚至 404）。
+> `docker-compose.yml` 使用「镜像自给自足」模式：前端、服务端、x86_64 静态 agent 都在镜像构建期完成编译，
+> **无需宿主机预装 node/go/gcc**。clone 后一条 `docker compose up -d --build` 即可用。
 
 ```bash
 cd ctforge-web
 
-# (1) 构建前端产物
-cd src/frontend && npm install && npm run build && cd ../..
-
-# (2) 构建服务端（必须 CGO_ENABLED=0，容器是 alpine/musl）
-cd src/server && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" \
-     -o bin/ctforge-server ./cmd/server && cd ../..
-
-# (3) （可选但推荐）构建 agent + ctforged 二进制，供 /download/* 与一键脚本使用
-#     agent：默认找 /tmp/openssl-3.0.15 静态库，没有会自动回退到系统 OpenSSL（产物是动态链接）
-make -C src/clients
-cp src/clients/ctforge-agent src/server/bin/ctforge-agent-amd64
-
-# ctforged 需要 SM2/ECDSA 头文件；首次需生成 key
-mkdir -p src/key/CTFORGED
-openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256 -out src/key/CTFORGED/private.pem
-openssl pkey -in src/key/CTFORGED/private.pem -pubout -out src/key/CTFORGED/public.pem
-cd src/key && gcc -O2 -std=c99 -o user_sm2_test user_sm2_test.c -lssl -lcrypto && ./user_sm2_test
-cp sm2_signature.h CTFORGED/ && cd ../../ctforged && make && cd ..
-cp src/ctforged/ctforged src/server/bin/ctforged-amd64
-
-# (4) .env
+# (1) .env
 cat > .env <<'EOF'
 CTF_TOKEN=强随机串
 CTF_SSH=:2222
 CTF_DISCOVER=9001
 EOF
 
-# (5) 启动
-docker compose up -d
-docker compose ps          # 期望 Up (healthy)
-docker compose logs -f ctforge-server
+# (2) 构建并启动（构建期自动编译所有产物）
+docker compose up -d --build
 
-# (6) 访问
-# HTTP  : http://<host>:8080
-# HTTPS : https://<host>:9443（自签证书）
-# 默认   : admin / admin123（首次登录强制改密）
+# (3) 验证
+docker compose ps          # 期望 Up (healthy)
+curl http://localhost:8080/api/health
+open http://localhost:8080              # 默认 admin / admin123，首次登录强制改密
 ```
 
 **端口说明：**
@@ -605,10 +578,9 @@ sudo tar czf ctforge-backup-$(date +%F).tar.gz /var/lib/ctforge /etc/ctforge
 
 ```bash
 git pull
-make all                 # 重新构建所有产物
-docker compose restart   # compose 部署（产物已挂载进容器）
+docker compose up -d --build   # compose 部署：重建镜像
 # 或
-sudo systemctl restart ctforge-server   # systemd 部署
+make all && sudo systemctl restart ctforge-server   # systemd 部署
 ```
 
 升级 agent：到每台目标主机执行 `curl -fsSL http://<server>:8080/api/deploy/script.sh | sudo sh -s -- --force-agent`。
@@ -638,7 +610,11 @@ sudo journalctl -u ctforge-agent -f
 ## 15. FAQ
 
 **Q1：改了前端代码，容器里还是旧页面？**
-A：`docker-compose.yml` 把 `src/frontend/dist` 挂载进容器。改完前端必须 `npm run build`，然后 `docker compose restart ctforge-server`。
+A：compose 使用「镜像自给自足」模式，不挂载宿主机产物。改完前端执行：
+```bash
+docker compose up -d --build
+```
+镜像构建期会重新 `npm ci && npm run build`，产物自动同步进容器。
 
 **Q2：Agent 一直「待批准」，但批准管理里看不到？**
 A：看 agent 日志 `journalctl -u ctforge-agent -f`：
@@ -681,6 +657,15 @@ A：`src/clients/Makefile` 默认找 `/tmp/openssl-3.0.15` 下的静态 OpenSSL�
 
 **Q12：`make ctforged` 报 `sm2_signature.h: No such file or directory`？**
 A：需要先按 3.3 节生成 ECDSA key 并跑 `src/key/user_sm2_test` 生成头文件，再 `make ctforged`。
+
+**Q13：镜像里为什么只有 x86_64 agent？arm64 怎么办？**
+A：当前 Dockerfile 只自动构建 x86_64 agent（`ctforge-agent-amd64`）。如需 arm64，在宿主机或 CI 里：
+```bash
+make -C src/clients CC=aarch64-linux-gnu-gcc OPENSSL_STATIC=<arm64静态OpenSSL路径>
+cp src/clients/ctforge-agent src/server/bin/ctforge-agent-arm64
+# 然后重启服务端，或把产物拷入镜像的 /app/bin/
+```
+如需要，可在 Dockerfile 里加一个 `arm64-agent-builder` stage 用交叉编译器产出。
 
 ---
 

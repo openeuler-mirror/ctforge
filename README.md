@@ -42,11 +42,8 @@ CTForge 提供三种运行方式，按推荐程度排序：
 
 适合：快速部署、生产环境、隔离运行。
 
-**前置要求：** Docker 20.10+、Docker Compose v2；宿主机另需 Node.js ≥ 22.12 与 Go ≥ 1.26（用于产出前端 dist 与服务端二进制）。
-
-> ⚠️ **重要：compose 使用「宿主机产物挂载」模式**
-> `docker-compose.yml` 把 `src/frontend/dist`、`src/server/bin/ctforge-server`、`src/server/bin` 以只读卷挂进容器，改代码后无需重建镜像即可生效。
-> 因此**必须先在本机构建这两个产物**，否则容器里跑的是旧版本（前端甚至会 404）。
+**前置要求：** 只需 Docker 20.10+ 与 Docker Compose v2。
+**无需** 宿主机预装 Node.js / Go / gcc —— 镜像构建期自动完成前端、服务端、x86_64 静态 agent 的编译。
 
 ```bash
 # 1. 克隆或进入项目目录
@@ -64,33 +61,25 @@ CTF_SSH=:2222
 CTF_TLS_SAN=
 EOF
 
-# 3. 构建宿主机产物（关键步骤）
-#    服务端必须静态编译（容器是 alpine/musl，动态链接会起不来）
-cd src/frontend && npm install && npm run build && cd ../..
-cd src/server   && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o bin/ctforge-server ./cmd/server && cd ../..
+# 3. 构建并启动（构建期自动编译所有产物，无需宿主机预装工具链）
+docker compose up -d --build
 
-# 4. （可选但推荐）构建 agent 与 ctforged 二进制，供 /download/* 与一键脚本使用
-#    4.1 agent：默认找 /tmp/openssl-3.0.15 静态库，没有会自动回退到系统 OpenSSL
-make -C src/clients
-cp src/clients/ctforge-agent src/server/bin/ctforge-agent-amd64
-
-#    4.2 ctforged：需要先按「方式三」的 eBPF 守护进程一节生成 ECDSA key 与头文件
-#        （openssl genpkey → src/key/user_sm2_test → cp sm2_signature.h CTFORGED/）
-make -C src/ctforged
-cp src/ctforged/ctforged src/server/bin/ctforged-amd64
-
-# 5. 启动
-docker compose up -d
-
-# 6. 查看状态
+# 4. 查看状态
 docker compose ps          # 期望 STATUS 为 Up (healthy)
 docker compose logs -f ctforge-server
 
-# 7. 访问 Web 控制台
+# 5. 访问 Web 控制台
 # HTTP ：http://localhost:8080
 # HTTPS：https://localhost:9443（自签证书，浏览器需手动信任）
 # 默认账号：admin / admin123（首次登录强制改密）
 ```
+
+> 镜像构建期自动完成的事：
+> - 前端：node:22-alpine 内 `npm ci && npm run build`
+> - 服务端：golang:1.26-alpine 内 `CGO_ENABLED=0 go build`（静态，alpine/musl 兼容）
+> - x86_64 agent：alpine:3.20 内 gcc + musl + 静态 OpenSSL 编译，产物零依赖
+>
+> 产物已内置于镜像 `/app/bin/ctforge-agent-amd64`，`/download/agent?arch=amd64` 开箱即用。
 
 **常用运维命令：**
 
@@ -101,11 +90,8 @@ docker compose down
 # 重启
 docker compose restart
 
-# 更新（拉新代码后重建宿主机产物，再重启容器）
-git pull
-cd src/frontend && npm install && npm run build && cd ../..
-cd src/server   && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o bin/ctforge-server ./cmd/server && cd ../..
-docker compose restart
+# 更新（拉新代码后重建镜像）
+git pull && docker compose up -d --build
 
 # 进入容器调试
 docker exec -it ctforge-server sh
