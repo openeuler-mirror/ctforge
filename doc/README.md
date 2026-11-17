@@ -62,7 +62,7 @@ CTForge 将 eBPF 防护与 Web 化运维能力整合到统一平台。
 ## 3. 目录结构
 
 ```
-ctforge-web/
+ctforge/
 ├── Makefile                 # 顶层构建入口
 ├── README.md
 ├── .gitignore

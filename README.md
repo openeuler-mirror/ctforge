@@ -47,7 +47,7 @@ CTForge 提供三种运行方式，按推荐程度排序：
 
 ```bash
 # 1. 克隆或进入项目目录
-cd ctforge-web
+cd ctforge
 
 # 2. （可选）创建 .env 配置注册令牌等参数
 cat > .env << 'EOF'
@@ -97,8 +97,8 @@ git pull && docker compose up -d --build
 docker exec -it ctforge-server sh
 
 # 查看持久化数据（账户、证书）
-docker volume inspect ctforge-web_ctforge-data
-docker volume inspect ctforge-web_ctforge-certs
+docker volume inspect ctforge_ctforge-data
+docker volume inspect ctforge_ctforge-certs
 ```
 
 **端口说明：**
@@ -361,7 +361,7 @@ docker compose up -d --build
 ## 目录结构
 
 ```
-ctforge-web/
+ctforge/
 ├── docker-compose.yml   # Docker Compose 部署（推荐）
 ├── Makefile             # 顶层构建入口
 ├── README.md

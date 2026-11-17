@@ -33,7 +33,7 @@
 前提：Linux 主机，已装 Docker 20.10+ / Docker Compose v2。**无需**宿主机预装 Node.js / Go / gcc —— 镜像构建期自动完成所有编译。
 
 ```bash
-git clone <repo-url> ctforge-web && cd ctforge-web
+git clone <repo-url> ctforge && cd ctforge
 
 # 1. （推荐）配置 .env
 cat > .env <<'EOF'
@@ -97,7 +97,7 @@ sudo apt update && sudo apt install -y golang nodejs gcc libssl-dev clang \
 > **无需宿主机预装 node/go/gcc**。clone 后一条 `docker compose up -d --build` 即可用。
 
 ```bash
-cd ctforge-web
+cd ctforge
 
 # (1) .env
 cat > .env <<'EOF'
@@ -130,7 +130,7 @@ open http://localhost:8080              # 默认 admin / admin123，首次登录
 适合开发、调试、不想用 Docker 的场景。会同时跑前后端，监听本机端口。
 
 ```bash
-cd ctforge-web
+cd ctforge
 
 # 1. 一键构建全部组件（前端、服务端、agent、ctforged、ctforgectl）
 make all
@@ -219,7 +219,7 @@ sudo systemctl status ctforge-server --no-pager
 
 ```bash
 # 在目标主机（被纳管端）执行
-cd ctforge-web
+cd ctforge
 
 # 1. 生成 ECDSA key + 头文件
 mkdir -p src/key/CTFORGED
@@ -565,9 +565,9 @@ curl -X POST -H "$H" -H 'Content-Type: application/json' -d '{"module":"kprobe_e
 
 ```bash
 # Docker 卷
-docker run --rm -v ctforge-web_ctforge-data:/data -v $(pwd):/backup alpine \
+docker run --rm -v ctforge_ctforge-data:/data -v $(pwd):/backup alpine \
   tar czf /backup/ctforge-data-$(date +%F).tar.gz -C /data .
-docker run --rm -v ctforge-web_ctforge-certs:/data -v $(pwd):/backup alpine \
+docker run --rm -v ctforge_ctforge-certs:/data -v $(pwd):/backup alpine \
   tar czf /backup/ctforge-certs-$(date +%F).tar.gz -C /data .
 
 # 裸机
@@ -630,7 +630,7 @@ A：服务端用自签证书。生产可：① 把 `/etc/ctforge/server.crt` 换
 A：删账户文件重启即重建 `admin/admin123`：
 ```bash
 docker compose stop ctforge-server
-docker run --rm -v ctforge-web_ctforge-data:/data alpine sh -c 'rm -f /data/accounts.json'
+docker run --rm -v ctforge_ctforge-data:/data alpine sh -c 'rm -f /data/accounts.json'
 docker compose start ctforge-server
 ```
 
