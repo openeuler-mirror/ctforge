@@ -106,7 +106,7 @@ docker compose logs -f ctforge-server
 
 ### 2.3 裸机运行（开发/调试）
 
-依赖：Go 1.21+、Node.js 22+、gcc、OpenSSL 开发头文件。
+依赖：Go ≥ 1.26、Node.js ≥ 22.12、gcc、OpenSSL 开发头文件。
 
 ```bash
 # 1. 构建全部组件

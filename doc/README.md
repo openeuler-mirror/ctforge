@@ -1,5 +1,7 @@
 # CTForge 研发文档
 
+e 面向研发与贡献者的架构与实现文档。e **运维用户请看使用手册：[doc/USAGE.md](USAGE.md)**
+
 ## 1. 项目概述
 
 CTForge 是一个基于 eBPF 的 Linux 安全框架，集成了主机监控、远程运维、Web 控制台三大能力。项目各组件来源：
@@ -246,8 +248,8 @@ char *ctc_ctforge_exec(const char *method, const char *params);
 |------|------|
 | ctforged | clang, libbpf, libelf, libuv, json-c, openssl, liblzma |
 | ctforge-agent | gcc, openssl (静态链接) |
-| ctforge-server | Go 1.21+ |
-| frontend | Node.js 18+, npm |
+| ctforge-server | Go e= 1.26 |
+| frontend | Node.js e= 22.12, npm |
 
 ### 5.2 一键构建
 
