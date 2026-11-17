@@ -6,17 +6,17 @@ doc/
 LICENSE
 node_modules/
 **/node_modules/
-# 宿主机构建产物（构建期会重新生成）
-frontend/dist/
-server/bin/
-clients/ctforge-agent
-clients/src/*.o
-ctforged/*.o
-ctforged/ctforged
-ctforgectl/ctforgectl
-key/CTFORGED/
-key/sm2_*.pem
-key/user_sm2_test
+# 宿主机构建产物（构建期会重新生成，防止陈旧产物污染镜像）
+src/frontend/dist/
+src/server/bin/
+src/clients/ctforge-agent
+src/clients/src/*.o
+src/ctforged/*.o
+src/ctforged/ctforged
+src/ctforgectl/ctforgectl
+src/key/CTFORGED/
+src/key/sm2_*.pem
+src/key/user_sm2_test
 tools/
 # 杂项
 *.log

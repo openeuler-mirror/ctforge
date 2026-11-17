@@ -52,9 +52,15 @@ COPY src/key/ ./key/
 # 在容器里现场生成 ECDSA key + sm2_signature.h，再静态编译 ctforged / ctforgectl
 RUN set -eux; \
     cd key; \
+    mkdir -p CTFORGED; \
+    # 1) ctforged 运行时用的密钥对\
     openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256 \
         -out CTFORGED/private.pem; \
     openssl pkey -in CTFORGED/private.pem -pubout -out CTFORGED/public.pem; \
+    # 2) user_sm2_test 硬编码读取当前目录的这两个文件名（被 gitignore 排除，
+    #    新克隆下不存在），必须在容器内现场生成\
+    cp CTFORGED/private.pem sm2_private_key.pem; \
+    cp CTFORGED/public.pem  sm2_public_key.pem; \
     gcc -O2 -std=c99 -o user_sm2_test user_sm2_test.c -lssl -lcrypto; \
     ./user_sm2_test; \
     cp sm2_signature.h CTFORGED/; \
