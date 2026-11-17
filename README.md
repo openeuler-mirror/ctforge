@@ -22,6 +22,16 @@ CTForge 是一个基于 eBPF 的 Linux 安全框架，提供非侵入式动态�
 
 ---
 
+## 文档索引
+
+| 文档 | 面向 | 内容 |
+|------|------|------|
+| [README.md](README.md) | 所有人 | 项目概览与三种部署方式 |
+| [doc/USAGE.md](doc/USAGE.md) | 运维用户 | **完整使用手册**：登录、纳管主机、各功能页操作、RBAC 授权、告警、跳板机、定时任务、AI、eBPF、API、备份升级、FAQ |
+| [doc/README.md](doc/README.md) | 研发 | 架构设计、模块划分、协议与消息类型、构建测试策略 |
+
+---
+
 ## 运行方式
 
 CTForge 提供三种运行方式，按推荐程度排序：
@@ -32,7 +42,11 @@ CTForge 提供三种运行方式，按推荐程度排序：
 
 适合：快速部署、生产环境、隔离运行。
 
-**前置要求：** Docker 20.10+ 与 Docker Compose v2。
+**前置要求：** Docker 20.10+、Docker Compose v2；宿主机另需 Node.js ≥ 22.12 与 Go ≥ 1.26（用于产出前端 dist 与服务端二进制）。
+
+> ⚠️ **重要：compose 使用「宿主机产物挂载」模式**
+> `docker-compose.yml` 把 `src/frontend/dist`、`src/server/bin/ctforge-server`、`src/server/bin` 以只读卷挂进容器，改代码后无需重建镜像即可生效。
+> 因此**必须先在本机构建这两个产物**，否则容器里跑的是旧版本（前端甚至会 404）。
 
 ```bash
 # 1. 克隆或进入项目目录
@@ -46,17 +60,30 @@ CTF_TOKEN=your-secure-token-here
 CTF_DISCOVER=9001
 # SSH 跳板端口（空=关闭）
 CTF_SSH=:2222
+# 额外证书 SAN（逗号分隔，例：10.0.0.5,ct.example.com）
+CTF_TLS_SAN=
 EOF
 
-# 3. 构建并启动
-docker compose up -d --build
+# 3. 构建宿主机产物（关键步骤）
+cd src/frontend && npm install && npm run build && cd ../..
+cd src/server   && go build -o bin/ctforge-server ./cmd/server && cd ../..
 
-# 4. 查看状态
-docker compose ps
+# 4. （可选）构建 agent 二进制，供 /download/agent 与一键脚本使用
+cd src/clients && make OPENSSL_STATIC=/usr STATIC_ALL=0 \
+  CFLAGS="-O2 -Wall -std=c11 -D_GNU_SOURCE -I/usr/include" \
+  LDFLAGS="-pthread -lutil -lssl -lcrypto -ldl" && cd ../..
+cp src/clients/ctforge-agent src/server/bin/ctforge-agent-amd64
+
+# 5. 启动
+docker compose up -d
+
+# 6. 查看状态
+docker compose ps          # 期望 STATUS 为 Up (healthy)
 docker compose logs -f ctforge-server
 
-# 5. 访问 Web 控制台
-# 默认地址：http://localhost:8080
+# 7. 访问 Web 控制台
+# HTTP ：http://localhost:8080
+# HTTPS：https://localhost:9443（自签证书，浏览器需手动信任）
 # 默认账号：admin / admin123（首次登录强制改密）
 ```
 
@@ -69,8 +96,11 @@ docker compose down
 # 重启
 docker compose restart
 
-# 更新（拉新代码后重建）
-git pull && docker compose up -d --build
+# 更新（拉新代码后重建宿主机产物，再重启容器）
+git pull
+cd src/frontend && npm install && npm run build && cd ../..
+cd src/server && go build -o bin/ctforge-server ./cmd/server && cd ../..
+docker compose restart
 
 # 进入容器调试
 docker exec -it ctforge-server sh
@@ -85,9 +115,12 @@ docker volume inspect ctforge-web_ctforge-certs
 | 端口 | 协议 | 用途 |
 |------|------|------|
 | 8080 | TCP | Web 控制台 + REST API + WebSocket |
+| 9443 | TCP | Web 控制台 HTTPS（自签证书） |
 | 9000 | TCP | Agent 控制通道（TLS 1.2+） |
 | 9001 | UDP | 局域网发现广播 |
-| 2222 | TCP | SSH 跳板机（可选） |
+| 2222 | TCP | SSH 跳板机（可选，需在 compose 中补充端口映射） |
+
+> 注意：`docker-compose.yml` 当前未映射 `2222`。要用 SSH 跳板机，请在 `ports:` 下加一行 `- "2222:2222"` 后再 `docker compose up -d`。
 
 ---
 
@@ -95,7 +128,7 @@ docker volume inspect ctforge-web_ctforge-certs
 
 适合：开发调试、无 Docker 环境、单节点快速验证。
 
-**前置要求：** Go 1.21+、Node.js 18+、gcc、openssl（可选 clang/libbpf 用于 eBPF 组件）。
+**前置要求：** Go ≥ 1.26、Node.js ≥ 22.12、gcc、openssl-devel（可选 clang/libbpf 用于 eBPF 组件）。
 
 ```bash
 # 1. 构建全部组件
@@ -131,6 +164,7 @@ sudo CTF_HTTP=:8080 \
 | 参数 | 环境变量 | 默认值 | 说明 |
 |------|----------|--------|------|
 | `-http` | `CTF_HTTP` | `:8080` | HTTP/WebSocket 监听地址 |
+| `-https` | `CTF_HTTPS` | `:9443` | HTTPS 监听地址（空=关闭） |
 | `-sock` | `CTF_SOCK` | `:9000` | Agent 控制通道监听地址 |
 | `-static` | `CTF_STATIC` | 空 | 前端 dist 目录（空=不托管前端） |
 | `-token` | `CTF_TOKEN` | 空 | Agent 注册令牌（空=不校验） |
@@ -240,6 +274,15 @@ sudo journalctl -u ctforged -f
 curl -fsSL http://<server-ip>:8080/api/deploy/script.sh | sudo sh
 ```
 
+脚本支持的可选参数：
+
+| 参数 | 作用 |
+|------|------|
+| `--ctforged-only` | 只安装 ctforged（eBPF 守护进程），不装 agent |
+| `--force-agent` | 强制重装 agent 二进制（用于版本升级） |
+
+> 一键脚本依赖服务端能提供 agent 二进制：需先执行 `make agent` 并放到 `src/server/bin/ctforge-agent-amd64`（或 arm64），否则 `/download/agent` 返回 404。
+
 **方式 B：手动安装**
 
 ```bash
@@ -281,7 +324,6 @@ systemctl enable --now ctforge-agent
 ```
 
 **Agent 配置项说明：**
-
 | 配置项 | 默认值 | 说明 |
 |--------|--------|------|
 | `server_host` | `127.0.0.1` | 服务端地址 |
@@ -295,8 +337,6 @@ systemctl enable --now ctforge-agent
 | `metrics_interval` | `30` | 指标采集周期（秒） |
 | `heartbeat_interval` | `10` | 心跳周期（秒） |
 | `log_level` | `1` | 0=debug 1=info 2=warn 3=error |
-
----
 
 ## 从旧服务迁移
 
