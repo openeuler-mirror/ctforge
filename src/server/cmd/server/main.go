@@ -38,6 +38,7 @@ import (
 func main() {
 	var (
 		httpAddr  = flag.String("http", envOr("CTF_HTTP", ":8080"), "HTTP/WebSocket listen address")
+		httpsAddr = flag.String("https", envOr("CTF_HTTPS", ":9443"), "HTTPS listen address (empty=disable)")
 		sockAddr  = flag.String("sock", envOr("CTF_SOCK", ":9000"), "agent socket listen address")
 		token     = flag.String("token", envOr("CTF_TOKEN", ""), "shared token for agent register (empty = no auth)")
 		staticDir = flag.String("static", envOr("CTF_STATIC", ""), "optional: dir of built frontend (dist) to serve")
@@ -342,6 +343,22 @@ func main() {
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 	log.Printf("[ctforge-server] http listening on %s", *httpAddr)
+	if *httpsAddr != "" && tlsCfg != nil {
+		go func() {
+			httpsSrv := &http.Server{
+				Addr:              *httpsAddr,
+				Handler:           root,
+				ReadHeaderTimeout: 10 * time.Second,
+				TLSConfig:         tlsCfg,
+			}
+			log.Printf("[ctforge-server] https listening on %s", *httpsAddr)
+			if err := httpsSrv.ListenAndServeTLS(*tlsCert, *tlsKey); err != nil && err != http.ErrServerClosed {
+				log.Printf("[ctforge-server] https error: %v", err)
+			}
+		}()
+	} else if *httpsAddr != "" {
+		log.Printf("[ctforge-server] https disabled (TLS cert unavailable)")
+	}
 	if err := httpSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatal(err)
 	}
