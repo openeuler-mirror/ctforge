@@ -1,3 +1,4 @@
+#include <sys/time.h>
 /*
  * ctfd.c - ctforged 守护进程自动拉起与状态上报
  *

@@ -1,0 +1,24 @@
+.git
+.gitignore
+.gitcode_alt_pr_state.json
+README.md
+doc/
+LICENSE
+node_modules/
+**/node_modules/
+# 宿主机构建产物（构建期会重新生成）
+frontend/dist/
+server/bin/
+clients/ctforge-agent
+clients/src/*.o
+ctforged/*.o
+ctforged/ctforged
+ctforgectl/ctforgectl
+key/CTFORGED/
+key/sm2_*.pem
+key/user_sm2_test
+tools/
+# 杂项
+*.log
+*.tmp
+.DS_Store

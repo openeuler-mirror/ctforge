@@ -1,5 +1,6 @@
 #define _GNU_SOURCE
 #define _XOPEN_SOURCE 700
+#include <sys/time.h>
 /* 系统账户管理 / 系统日志 / 网络监控 / 远程命令执行
  * 部分操作需 root 权限（改密码、锁定账户）；非 root 时返回明确错误。
  */

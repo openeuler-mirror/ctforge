@@ -21,6 +21,8 @@
 #define CTFORGE_CFG_PATH "/etc/ctforge/ctforge.cfg"
 #define CTFORGE_RESP_MAX (256 * 1024)
 
+#include <sys/time.h>
+
 static int ctforge_set_timeout(int fd)
 {
     struct timeval tv;
