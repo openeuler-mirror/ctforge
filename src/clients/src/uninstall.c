@@ -1,3 +1,4 @@
+#include <sys/time.h>
 /* 卸载保护：agent 必须获得服务端批准才能卸载。
  *
  * 用法：ctforge-agent --uninstall

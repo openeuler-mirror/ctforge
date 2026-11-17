@@ -5,6 +5,7 @@
  * 所有数据都经现有 TLS 控制连接，不额外开洞。
  */
 #define _GNU_SOURCE
+#include <sys/time.h>
 #include "ctforge.h"
 #include <stdio.h>
 #include <stdlib.h>

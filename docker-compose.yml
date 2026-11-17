@@ -1,14 +1,14 @@
 # ============================================================
 # CTForge Docker Compose
-# 一键启动完整 CTForge 服务端（含前端 + Go Server）
-# 参考 ctcontrol 的 docker-compose.yml 结构
+# 一键启动完整 CTForge 服务端（含前端 + Go Server + x86_64 agent）
+# 镜像在构建期自动编译所有产物，无需宿主机预安装 node/go/gcc
 # ============================================================
 
 services:
   ctforge-server:
     build:
-      context: ./src
-      dockerfile: server/Dockerfile
+      context: .
+      dockerfile: src/server/Dockerfile
     image: ctforge/server:latest
     container_name: ctforge-server
     restart: unless-stopped
@@ -17,18 +17,12 @@ services:
       - "9443:9443"       # Web 控制台 + REST API（HTTPS，自签证书）
       - "9000:9000"       # Agent 控制通道（TLS）
       - "9001:9001/udp"   # 局域网发现广播
-      - "2222:2222"       # SSH 跳板机（可选，关闭服务端 CTF_SSH=空）
+      - "2222:2222"       # SSH 跳板机（可选，置 CTF_SSH=空关闭）
     volumes:
-      # 持久化账户与会话状态
+      # 持久化账户、审批、任务、历史等状态
       - ctforge-data:/var/lib/ctforge
-      # 持久化 TLS 证书与密钥（首次启动自动生成，之后保持不变）
+      # 持久化 TLS 证书（首次启动自动生成，之后保持不变）
       - ctforge-certs:/etc/ctforge
-      # Agent 二进制（供 /download/agent 下载，宿主机编译后放入此目录）
-      - ./src/server/bin:/app/bin:ro
-      # 前端构建产物（宿主机 npm run build 后自动同步，无需 docker cp）
-      - ./src/frontend/dist:/app/static:ro
-      # 覆盖镜像内 server 二进制（宿主机 go build 后直接生效，无需重建镜像）
-      - ./src/server/bin/ctforge-server:/usr/local/bin/ctforge-server:ro
     environment:
       TZ: Asia/Shanghai
       CTF_HTTP: ":8080"
@@ -39,11 +33,11 @@ services:
       CTF_DATA: "/var/lib/ctforge"
       CTF_TLS_CERT: "/etc/ctforge/server.crt"
       CTF_TLS_KEY: "/etc/ctforge/server.key"
-      # 注册令牌：Agent 需配置相同 token 才能接入（留空则不校验）
+      # 注册令牌：Agent 需配置相同 token 才能接入（留空则不校验，生产必配）
       CTF_TOKEN: "${CTF_TOKEN:-}"
       # 局域网发现端口（0 = 关闭）
       CTF_DISCOVER: "${CTF_DISCOVER:-9001}"
-      # SSH 跳板机端口（0 = 关闭）
+      # SSH 跳板机端口（空 = 关闭）
       CTF_SSH: "${CTF_SSH:-:2222}"
       # 额外证书 SAN，逗号分隔（例：10.0.0.5,ct.example.com）
       CTF_TLS_SAN: "${CTF_TLS_SAN:-}"
