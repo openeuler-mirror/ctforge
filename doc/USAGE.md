@@ -54,6 +54,18 @@ curl http://localhost:8080/api/health   # 期望 {"code":0,...,"status":"up"}
 open http://localhost:8080              # 默认 admin / admin123，首次登录强制改密
 ```
 
+> ⚠️ **新手 3 大坑（全部实测确认）**
+> 1. **服务端必须 `CGO_ENABLED=0`** —— 容器是 alpine(musl)，用默认 cgo 编出的动态链接二进制会直接 `exec format error / no such file or directory`，容器无限重启。
+> 2. **前端 dist 与服务端二进制必须先在本机构建** —— compose 以只读卷挂载它们，容器不自己编译。
+> 3. **`make ctforged` 前必须先生成 key** —— 否则 `../key/CTFORGED/sm2_signature.h` 找不到，`make all` 直接失败。只跑服务端（不装 eBPF）可跳过 `make all`，用下面的最小构建。
+
+**只要 Web 控制台（不装 eBPF 组件）的最小构建：**
+```bash
+cd src/frontend && npm install && npm run build && cd ../..
+cd src/server && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o bin/ctforge-server ./cmd/server && cd ../..
+docker compose up -d
+```
+
 ---
 
 ## 2. 环境依赖矩阵
