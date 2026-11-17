@@ -47,7 +47,7 @@ CTForge 提供三种运行方式，按推荐程度排序：
 
 ```bash
 # 1. 克隆或进入项目目录
-cd ctforge
+git clone <repo-url> ctforge && cd ctforge
 
 # 2. （可选）创建 .env 配置注册令牌等参数
 cat > .env << 'EOF'
@@ -78,8 +78,9 @@ docker compose logs -f ctforge-server
 > - 前端：node:22-alpine 内 `npm ci && npm run build`
 > - 服务端：golang:1.26-alpine 内 `CGO_ENABLED=0 go build`（静态，alpine/musl 兼容）
 > - x86_64 agent：alpine:3.20 内 gcc + musl + 静态 OpenSSL 编译，产物零依赖
+> - ctforged + ctforgectl：alpine:3.20 内 clang + 静态 libbpf/elf/zstd 编译，产物零依赖
 >
-> 产物已内置于镜像 `/app/bin/ctforge-agent-amd64`，`/download/agent?arch=amd64` 开箱即用。
+> 产物已内置于镜像 `/app/bin/`，`/download/agent?arch=amd64` 与 `/download/ctforged` 开箱即用。
 
 **常用运维命令：**
 
@@ -123,6 +124,7 @@ docker volume inspect ctforge_ctforge-certs
 
 ```bash
 # 1. 构建全部组件（前端、服务端、agent、ctforged、ctforgectl）
+#    注意：ctforged / ctforgectl 需要先生成 key，见下面 eBPF 守护进程安装
 make all
 
 # 2. 准备运行时目录与配置
@@ -241,8 +243,15 @@ sudo journalctl -u ctforge-server -f
 
 **eBPF 守护进程（ctforged）安装：**
 
+> 镜像已自动构建好 `ctforged` 与 `ctforgectl` 静态二进制。
+> 目标主机上装 ctforged 最简方式：
+> ```bash
+> curl -fsSL http://<server-ip>:8080/api/deploy/script.sh | sudo sh -s -- --ctforged-only
+> ```
+> 或手动：
+
 ```bash
-# 0. 前置：生成 ECDSA key 与头文件
+# 0. （可选）如需在宿主机重新编译 ctforged，先生成 key：
 mkdir -p src/key/CTFORGED
 openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256 -out src/key/CTFORGED/private.pem
 openssl pkey -in src/key/CTFORGED/private.pem -pubout -out src/key/CTFORGED/public.pem
@@ -283,7 +292,8 @@ curl -fsSL http://<server-ip>:8080/api/deploy/script.sh | sudo sh
 | `--ctforged-only` | 只安装 ctforged（eBPF 守护进程），不装 agent |
 | `--force-agent` | 强制重装 agent 二进制（用于版本升级） |
 
-> 一键脚本依赖服务端能提供 agent 二进制：需先执行 `make agent` 并放到 `src/server/bin/ctforge-agent-amd64`（或 arm64），否则 `/download/agent` 返回 404。
+> 一键脚本依赖服务端能提供 agent/ctforged 二进制：Docker 部署已内置（无需手动编译），
+> 裸机部署请先 `make agent` 并放到 `src/server/bin/ctforge-agent-amd64`（或 arm64），否则 `/download/agent` 返回 404。
 
 **方式 B：手动安装**
 

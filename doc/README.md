@@ -244,80 +244,107 @@ char *ctc_ctforge_exec(const char *method, const char *params);
 
 ### 5.1 构建要求
 
+**方式 A（推荐）：全部在容器内构建** —— 宿主机只需 Docker 20.10+ / Compose v2，无任何语言工具链依赖。
+
+**方式 B：宿主机直接构建** —— 需要下表工具链。
+
 | 组件 | 依赖 |
 |------|------|
 | ctforged | clang, libbpf, libelf, libuv, json-c, openssl, liblzma |
 | ctforge-agent | gcc, openssl（静态 OpenSSL 可选；无则自动回退到系统 OpenSSL） |
-| ctforge-server | Go e= 1.26（必须 `CGO_ENABLED=0`，产物要跑在 alpine 容器里） |
-| frontend | Node.js e= 22.12, npm |
+| ctforge-server | Go ≥ 1.26（必须 `CGO_ENABLED=0`，产物要跑在 alpine 容器里） |
+| frontend | Node.js ≥ 22.12, npm |
 
-**首次构建前的准备步骤：**
+### 5.2 容器内构建（推荐，零宿主依赖）
+
+`src/server/Dockerfile` 是一个 5 阶段多阶段构建，全部编译都在容器里完成：
+
+| Stage | 基础镜像 | 产出 |
+|-------|----------|------|
+| `frontend` | node:22-alpine | `dist/`（`npm ci && npm run build`） |
+| `backend` | golang:1.26-alpine | `ctforge-server`（`CGO_ENABLED=0` 静态） |
+| `agent-builder` | alpine:3.20 | `ctforge-agent-amd64`（gcc + musl + 静态 OpenSSL） |
+| `ctforged-builder` | alpine:3.20 | `ctforged-amd64` + `ctforgectl`（clang + 静态 libbpf/elf/zstd/ssl/lzma/uv/json-c） |
+| runtime | alpine:3.20 | 以上全部产物，落在 `/app/bin/` 与 `/usr/local/bin/` |
 
 ```bash
-# 0. ECDSA key 与 SM2 头文件（仅 ctforged 需要）
+docker compose up -d --build
+```
+
+关键设计点：
+
+- **ECDSA 密钥对与 `sm2_signature.h` 在镜像构建期现场生成**（`openssl genpkey` + `user_sm2_test`），仓库无需携带私钥
+- **ctforged 静态链接**：下载到任意 glibc 目标主机（Fedora/Ubuntu/OpenWrt）可直接运行
+- `CTF_AGENT_BIN_DIR=/app/bin` 与 `CTF_CTFD_BIN_DIR=/app/bin` 让 `/download/agent`、`/download/ctforged` 开箱可用
+- `alpine` 包名注意：`elfutils-dev`（非 `libelf-dev`）、`zstd-static`（libelf 静态库依赖 zstd）
+
+### 5.3 宿主机构建（开发/无 Docker 环境）
+
+**首次构建前需生成 ECDSA key 与 SM2 头文件（仅 ctforged 需要）：**
+
+```bash
 mkdir -p src/key/CTFORGED
 openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256 \
   -out src/key/CTFORGED/private.pem
 openssl pkey -in src/key/CTFORGED/private.pem -pubout \
   -out src/key/CTFORGED/public.pem
-cd src/key 66 gcc -O2 -std=c99 -o user_sm2_test user_sm2_test.c -lssl -lcrypto
+cd src/key && gcc -O2 -std=c99 -o user_sm2_test user_sm2_test.c -lssl -lcrypto
 ./user_sm2_test                      # 生成 sm2_signature.h
-cp sm2_signature.h CTFORGED/ 66 cd ../..
-
-# 1. 一键构建（前端 + 服务端 + agent + ctforged + ctforgectl）
-make all
-
-# 产物会自动拷到 src/server/bin/ 供 /download/* 使用：
-#   ctforge-agent-amd64 6 ctforged-amd64
+cp sm2_signature.h CTFORGED/ && cd ../..
 ```
 
-### 5.2 一键构建
+**一键构建：**
 
 ```bash
-# 全部构建（会自动准备 src/server/bin/ctforge-agent-amd64 / ctforged-amd64）
-make all
+make all          # 前端 + 服务端 + agent + ctforged + ctforgectl
+                  # 产物自动拷到 src/server/bin/ 供 /download/* 使用
 
 # 单独构建
-make ctforged    # eBPF 守护进程（需要先按上一步生成 ECDSA key 与头文件）
+make ctforged    # eBPF 守护进程（需先执行上面的 keygen）
 make ctforgectl  # 管理 CLI
 make agent       # C 客户端
 make server      # Go 服务端（已默认 CGO_ENABLED=0）
 make frontend    # Vue3 前端
 
-# 安装到系统
-sudo make install
-
-# 清理
-make clean
-
-# 测试
-make test
+sudo make install   # 安装到系统
+make clean          # 清理
+make test           # Go 测试 + C 语法检查
 ```
 
-### 5.3 部署流程
+### 5.4 部署流程
+
+**Docker Compose（推荐）：**
 
 ```bash
-# 1. 构建前端并部署到服务端静态目录
-cd src/frontend && npm run build
-# 将 dist/ 目录复制到服务器
+# 1. 可选：配置注册令牌
+cat > .env <<'EOF'
+CTF_TOKEN=your-secure-token-here
+EOF
 
-# 2. 启动服务端
-./ctforge-server -http :8080 -sock :9000 -static /path/to/dist
+# 2. 构建并启动（容器内完成全部编译）
+docker compose up -d --build
 
-# 3. 在目标主机部署 agent（通过 Web 控制台生成一键安装命令）
-#    或直接复制编译好的 ctforge-agent 到目标主机
+# 3. 验证
+curl http://localhost:8080/api/health
+```
+
+**裸机/systemd：**
+
+```bash
+# 1. 宿机构建
+make all && sudo make install
+
+# 2. 拷贝前端产物
+sudo mkdir -p /usr/local/share/ctforge/static
+sudo cp -r src/frontend/dist/* /usr/local/share/ctforge/static/
+
+# 3. 启动服务端
+./src/server/bin/ctforge-server -http :8080 -sock :9000 -static src/frontend/dist
 
 # 4. 在需要 eBPF 防护的主机安装 ctforged
-sudo make -C src/ctforged install
-sudo systemctl start ctforged
+sudo make -C src/ctforged install && sudo systemctl enable --now ctforged
 ```
 
-## 6. 测试策略
-
-### 6.1 Go Server 测试
-
-```bash
-cd src/server && go test -v ./...
 ```
 
 - 协议编解码测试

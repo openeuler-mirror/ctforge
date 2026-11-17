@@ -55,11 +55,11 @@ open http://localhost:8080              # 默认 admin / admin123，首次登录
 > - 服务端：golang:1.26-alpine 内 `CGO_ENABLED=0 go build`（静态，alpine/musl 兼容）
 > - x86_64 agent：alpine:3.20 内 gcc + musl + 静态 OpenSSL 编译，产物零依赖
 >
-> 产物已内置于镜像 `/app/bin/ctforge-agent-amd64`，`/download/agent?arch=amd64` 开箱即用。
+> 产物已内置于镜像 `/app/bin/`，`/download/agent?arch=amd64` 与 `/download/ctforged` 开箱即用。
 >
 > ⚠️ **注意事项（全部实测确认）**
 > 1. 改代码后必须 `docker compose up -d --build` 重建镜像才会生效（compose 不再挂载宿主机产物）。
-> 2. eBPF（ctforged）不在镜像构建范围，需在目标主机单独编译安装（见 3.3）。
+> 2. eBPF（ctforged）已在镜像构建期编译完成，通过一键脚本 `--ctforged-only` 直接下发到目标主机。
 > 3. arm64 agent 暂未自动构建；如需 arm64，见 [Q13](#15-faq)。
 
 ---
@@ -160,10 +160,14 @@ sudo CTF_HTTP=:8080 CTF_HTTPS=:9443 CTF_SOCK=:9000 \
 注意：
 - 默认会读取 `.env` 吗？**不会**，`.env` 只被 `docker-compose.yml` 读取。裸机跑要么传 flag，要么 `export CTF_*=...`。
 - agent 二进制路径：默认服务端在 `CTF_AGENT_BIN_DIR`（默认 `bin/`）下找 `ctforge-agent-amd64/arm64`。`make all` 后已拷到 `src/server/bin/`，请把当前目录设为这个路径，或用 `-agent-bin` 直接指定绝对路径。
+- ctforged / ctforgectl 路径：默认服务端通过 `CTF_CTFD_BIN_DIR`（默认 `/app/bin`）查找 `ctforged-amd64`。裸机部署时请设置 `CTF_CTFD_BIN_DIR=src/server/bin` 或软链到对应位置。
 
 ### 3.3 systemd 服务（生产服务器）
 
 适合：要开机自启、崩溃自动重启、统一日志（journald）。
+
+> 说明：systemd 部署是「宿机构建」路线，需要本机装工具链。
+> 生产环境更推荐用 Docker Compose 方式（见 3.1）。
 
 **服务端 unit：**
 
@@ -216,6 +220,14 @@ sudo systemctl status ctforge-server --no-pager
 ```
 
 **eBPF 守护进程 unit（可选，仅在需要 eBPF 防护的主机装）：**
+
+> 最简方式（推荐）：直接在目标主机跑一键脚本即可，镜像已内置静态二进制：
+> ```bash
+> curl -fsSL http://<server-ip>:8080/api/deploy/script.sh | sudo sh -s -- --ctforged-only
+> ```
+> 脚本会自动下载 `ctforged-amd64` → 写 `/etc/ctforge/ctforge.cfg` → 装 systemd unit → 启动。
+
+手动方式（在目标主机上从源码构建）：
 
 ```bash
 # 在目标主机（被纳管端）执行
@@ -576,11 +588,17 @@ sudo tar czf ctforge-backup-$(date +%F).tar.gz /var/lib/ctforge /etc/ctforge
 
 ### 14.2 升级
 
+**Docker Compose 部署（推荐）：**
 ```bash
 git pull
-docker compose up -d --build   # compose 部署：重建镜像
-# 或
-make all && sudo systemctl restart ctforge-server   # systemd 部署
+docker compose up -d --build   # 重建镜像（前端、服务端、agent、ctforged 全部重新编译）
+```
+
+**systemd / 裸机部署：**
+```bash
+git pull
+make all
+sudo systemctl restart ctforge-server
 ```
 
 升级 agent：到每台目标主机执行 `curl -fsSL http://<server>:8080/api/deploy/script.sh | sudo sh -s -- --force-agent`。
@@ -656,7 +674,7 @@ A：① 强 `CTF_TOKEN`；② admin 强密码；③ 用 HTTPS 9443；④ agent �
 A：`src/clients/Makefile` 默认找 `/tmp/openssl-3.0.15` 下的静态 OpenSSL。没有会自动回退到系统 OpenSSL（产物动态链接，目标机需装 `libssl`）。要完全静态，先跑 `src/clients/build-static.sh` 编译静态 OpenSSL。
 
 **Q12：`make ctforged` 报 `sm2_signature.h: No such file or directory`？**
-A：需要先按 3.3 节生成 ECDSA key 并跑 `src/key/user_sm2_test` 生成头文件，再 `make ctforged`。
+A：需要先按 3.3 节生成 ECDSA key 并跑 `src/key/user_sm2_test` 生成头文件，再 `make ctforged`。Docker Compose 部署已内置，无需关心此问题。
 
 **Q13：镜像里为什么只有 x86_64 agent？arm64 怎么办？**
 A：当前 Dockerfile 只自动构建 x86_64 agent（`ctforge-agent-amd64`）。如需 arm64，在宿主机或 CI 里：
@@ -666,6 +684,15 @@ cp src/clients/ctforge-agent src/server/bin/ctforge-agent-arm64
 # 然后重启服务端，或把产物拷入镜像的 /app/bin/
 ```
 如需要，可在 Dockerfile 里加一个 `arm64-agent-builder` stage 用交叉编译器产出。
+
+**Q14：Docker Compose 部署和裸机部署的核心差异？**
+A：核心差异在**编译环节**与**产物位置**：
+| 维度 | Docker Compose | 裸机 / systemd |
+|------|----------------|----------------|
+| 编译环境 | 容器内完成（alpine + node/go/gcc/clang） | 宿主机需自行装工具链 |
+| 产物位置 | 镜像内 `/app/bin/` | 宿主机 `src/server/bin/` |
+| 更新方式 | `docker compose up -d --build` | `git pull && make all && systemctl restart` |
+| 一键脚本可用性 | 开箱即用 | 需先 `make agent` 放入 `src/server/bin/` |
 
 ---
 
