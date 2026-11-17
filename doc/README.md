@@ -247,20 +247,41 @@ char *ctc_ctforge_exec(const char *method, const char *params);
 | 组件 | 依赖 |
 |------|------|
 | ctforged | clang, libbpf, libelf, libuv, json-c, openssl, liblzma |
-| ctforge-agent | gcc, openssl (静态链接) |
-| ctforge-server | Go e= 1.26 |
+| ctforge-agent | gcc, openssl（静态 OpenSSL 可选；无则自动回退到系统 OpenSSL） |
+| ctforge-server | Go e= 1.26（必须 `CGO_ENABLED=0`，产物要跑在 alpine 容器里） |
 | frontend | Node.js e= 22.12, npm |
+
+**首次构建前的准备步骤：**
+
+```bash
+# 0. ECDSA key 与 SM2 头文件（仅 ctforged 需要）
+mkdir -p src/key/CTFORGED
+openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256 \
+  -out src/key/CTFORGED/private.pem
+openssl pkey -in src/key/CTFORGED/private.pem -pubout \
+  -out src/key/CTFORGED/public.pem
+cd src/key 66 gcc -O2 -std=c99 -o user_sm2_test user_sm2_test.c -lssl -lcrypto
+./user_sm2_test                      # 生成 sm2_signature.h
+cp sm2_signature.h CTFORGED/ 66 cd ../..
+
+# 1. 一键构建（前端 + 服务端 + agent + ctforged + ctforgectl）
+make all
+
+# 产物会自动拷到 src/server/bin/ 供 /download/* 使用：
+#   ctforge-agent-amd64 6 ctforged-amd64
+```
 
 ### 5.2 一键构建
 
 ```bash
-# 全部构建
+# 全部构建（会自动准备 src/server/bin/ctforge-agent-amd64 / ctforged-amd64）
 make all
 
 # 单独构建
-make ctforged    # eBPF 守护进程
+make ctforged    # eBPF 守护进程（需要先按上一步生成 ECDSA key 与头文件）
+make ctforgectl  # 管理 CLI
 make agent       # C 客户端
-make server      # Go 服务端
+make server      # Go 服务端（已默认 CGO_ENABLED=0）
 make frontend    # Vue3 前端
 
 # 安装到系统

@@ -65,14 +65,19 @@ CTF_TLS_SAN=
 EOF
 
 # 3. 构建宿主机产物（关键步骤）
+#    服务端必须静态编译（容器是 alpine/musl，动态链接会起不来）
 cd src/frontend && npm install && npm run build && cd ../..
-cd src/server   && go build -o bin/ctforge-server ./cmd/server && cd ../..
+cd src/server   && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o bin/ctforge-server ./cmd/server && cd ../..
 
-# 4. （可选）构建 agent 二进制，供 /download/agent 与一键脚本使用
-cd src/clients && make OPENSSL_STATIC=/usr STATIC_ALL=0 \
-  CFLAGS="-O2 -Wall -std=c11 -D_GNU_SOURCE -I/usr/include" \
-  LDFLAGS="-pthread -lutil -lssl -lcrypto -ldl" && cd ../..
+# 4. （可选但推荐）构建 agent 与 ctforged 二进制，供 /download/* 与一键脚本使用
+#    4.1 agent：默认找 /tmp/openssl-3.0.15 静态库，没有会自动回退到系统 OpenSSL
+make -C src/clients
 cp src/clients/ctforge-agent src/server/bin/ctforge-agent-amd64
+
+#    4.2 ctforged：需要先按「方式三」的 eBPF 守护进程一节生成 ECDSA key 与头文件
+#        （openssl genpkey → src/key/user_sm2_test → cp sm2_signature.h CTFORGED/）
+make -C src/ctforged
+cp src/ctforged/ctforged src/server/bin/ctforged-amd64
 
 # 5. 启动
 docker compose up -d
@@ -99,7 +104,7 @@ docker compose restart
 # 更新（拉新代码后重建宿主机产物，再重启容器）
 git pull
 cd src/frontend && npm install && npm run build && cd ../..
-cd src/server && go build -o bin/ctforge-server ./cmd/server && cd ../..
+cd src/server   && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o bin/ctforge-server ./cmd/server && cd ../..
 docker compose restart
 
 # 进入容器调试
@@ -118,9 +123,9 @@ docker volume inspect ctforge-web_ctforge-certs
 | 9443 | TCP | Web 控制台 HTTPS（自签证书） |
 | 9000 | TCP | Agent 控制通道（TLS 1.2+） |
 | 9001 | UDP | 局域网发现广播 |
-| 2222 | TCP | SSH 跳板机（可选，需在 compose 中补充端口映射） |
+| 2222 | TCP | SSH 跳板机 |
 
-> 注意：`docker-compose.yml` 当前未映射 `2222`。要用 SSH 跳板机，请在 `ports:` 下加一行 `- "2222:2222"` 后再 `docker compose up -d`。
+> 2026-11-17 起 `docker-compose.yml` 已映射 `2222`；如不需要可在 compose 里删除该行，或置 `CTF_SSH=` 空关闭服务端监听。
 
 ---
 
@@ -131,32 +136,35 @@ docker volume inspect ctforge-web_ctforge-certs
 **前置要求：** Go ≥ 1.26、Node.js ≥ 22.12、gcc、openssl-devel（可选 clang/libbpf 用于 eBPF 组件）。
 
 ```bash
-# 1. 构建全部组件
+# 1. 构建全部组件（前端、服务端、agent、ctforged、ctforgectl）
 make all
 
-# 2. 安装到系统（可选，默认 PREFIX=/usr/local）
-sudo make install
-
-# 3. 准备运行时目录与配置
+# 2. 准备运行时目录与配置
 sudo mkdir -p /var/lib/ctforge /etc/ctforge
 sudo cp src/clients/ctforge-agent.conf.example /etc/ctforge/agent.conf
 
-# 4. 启动服务端（方式 A：直接前台运行，Ctrl+C 停止）
-sudo /usr/local/bin/ctforge-server \
-  -http :8080 \
-  -sock :9000 \
-  -static src/frontend/dist \
-  -data /var/lib/ctforge \
+# 3. 启动服务端（前台，Ctrl+C 退出）
+sudo ./src/server/bin/ctforge-server \
+  -http     :8080 \
+  -https    :9443 \
+  -sock     :9000 \
+  -static   src/frontend/dist \
+  -data     /var/lib/ctforge \
   -accounts /var/lib/ctforge/accounts.json \
   -tls-cert /etc/ctforge/server.crt \
-  -tls-key  /etc/ctforge/server.key
+  -tls-key  /etc/ctforge/server.key \
+  -agent-bin src/server/bin/ctforge-agent-amd64
 
 # 5. 或使用环境变量（等效）
 sudo CTF_HTTP=:8080 \
      CTF_SOCK=:9000 \
      CTF_STATIC=src/frontend/dist \
      CTF_DATA=/var/lib/ctforge \
-     /usr/local/bin/ctforge-server
+     ./src/server/bin/ctforge-server
+
+# 注意：裸机跑时服务端会在启动目录的 bin/ 下找 agent/ctforged 二进制。
+# make all 已把产物拷到 src/server/bin/，请把当前目录设为项目根目录，
+# 或显式 -agent-bin <绝对路径> / -ctfd-bin <绝对路径>。
 ```
 
 **服务端启动参数说明：**
@@ -245,17 +253,25 @@ sudo systemctl status ctforge-server
 sudo journalctl -u ctforge-server -f
 ```
 
-**eBPF 守护进程（ctforged）systemd unit：**
+**eBPF 守护进程（ctforged）安装：**
 
 ```bash
-# 安装 ctforged（需要 clang + libbpf 编译）
+# 0. 前置：生成 ECDSA key 与头文件
+mkdir -p src/key/CTFORGED
+openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256 -out src/key/CTFORGED/private.pem
+openssl pkey -in src/key/CTFORGED/private.pem -pubout -out src/key/CTFORGED/public.pem
+cd src/key && gcc -O2 -std=c99 -o user_sm2_test user_sm2_test.c -lssl -lcrypto && ./user_sm2_test
+cp sm2_signature.h CTFORGED/ && cd ../..
+
+# 1. 构建并安装（装 ctforged + ctforged.service 到 /etc/systemd/system/）
 sudo make -C src/ctforged install
 
-# 启用服务（项目已附带 unit 文件）
+# 2. 启用服务
+sudo systemctl daemon-reload
 sudo systemctl enable --now ctforged
 
-# 查看状态
-sudo systemctl status ctforged
+# 3. 查看状态
+sudo systemctl status ctforged --no-pager
 sudo journalctl -u ctforged -f
 ```
 
