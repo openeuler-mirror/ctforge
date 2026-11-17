@@ -98,6 +98,7 @@ git pull && docker compose up -d --build
 docker exec -it ctforge-server sh
 
 # 查看持久化数据（账户、证书）
+# 注意：卷名 = <clone目录名>_<卷名>，本例假设 clone 到名为 ctforge 的目录
 docker volume inspect ctforge_ctforge-data
 docker volume inspect ctforge_ctforge-certs
 ```
