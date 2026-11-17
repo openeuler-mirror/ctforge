@@ -577,6 +577,7 @@ curl -X POST -H "$H" -H 'Content-Type: application/json' -d '{"module":"kprobe_e
 
 ```bash
 # Docker 卷
+# 注意：卷名 = <clone目录名>_<卷名>，本例假设 clone 到名为 ctforge 的目录
 docker run --rm -v ctforge_ctforge-data:/data -v $(pwd):/backup alpine \
   tar czf /backup/ctforge-data-$(date +%F).tar.gz -C /data .
 docker run --rm -v ctforge_ctforge-certs:/data -v $(pwd):/backup alpine \
