@@ -25,13 +25,14 @@ COPY --from=frontend /build/dist /app/static
 
 ENV TZ=Asia/Shanghai \
     CTF_HTTP=:8080 \
+    CTF_HTTPS=:9443 \
     CTF_SOCK=:9000 \
     CTF_STATIC=/app/static \
     CTF_ACCOUNTS=/var/lib/ctforge/accounts.json \
     CTF_TLS_CERT=/etc/ctforge/server.crt \
     CTF_TLS_KEY=/etc/ctforge/server.key
 
-EXPOSE 8080/tcp 9000/tcp 9001/udp
+EXPOSE 8080/tcp 9443/tcp 9000/tcp 9001/udp
 VOLUME ["/var/lib/ctforge", "/etc/ctforge"]
 USER ctforge
 
