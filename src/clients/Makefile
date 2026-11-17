@@ -3,15 +3,41 @@ CFLAGS  ?= -O2 -Wall -Wextra -Wformat=2 -std=c11 -D_GNU_SOURCE
 
 # 静态 OpenSSL（构建时用 ./build-static.sh 一键编译）
 OPENSSL_STATIC ?= /tmp/openssl-3.0.15
-OSSL_INC   := $(OPENSSL_STATIC)/include
-OSSL_LIBS  := $(OPENSSL_STATIC)/libssl.a $(OPENSSL_STATIC)/libcrypto.a
+# 自动探测：若无静态 OpenSSL，则回退到系统 OpenSSL（半静态，产物依赖目标机 libssl.so）
+ifeq ($(wildcard $(OPENSSL_STATIC)/libssl.a),)
+  ifneq ($(STATIC_ALL),0)
+    $(warning ⚠️  未找到 $(OPENSSL_STATIC)/libssl.a，自动回退为系统 OpenSSL（产物需目标机有 libssl.so）)
+  endif
+  USE_STATIC_OSSL := 0
+else
+  USE_STATIC_OSSL := 1
+endif
 
-# 完全静态链接（零依赖单文件）；失败可降级为半静态（仅静态 OpenSSL）
+ifeq ($(USE_STATIC_OSSL),1)
+  OSSL_INC  := $(OPENSSL_STATIC)/include
+  OSSL_LIBS := $(OPENSSL_STATIC)/libssl.a $(OPENSSL_STATIC)/libcrypto.a
+else
+  # 系统 OpenSSL：优先 pkg-config，否则尝试默认头文件路径
+  OSSL_INC  := $(patsubst -I%,-I%,$(shell pkg-config --cflags-only-I openssl 2>/dev/null))
+  ifeq ($(strip $(OSSL_INC)),)
+    OSSL_INC := -I/usr/include
+  endif
+  OSSL_LIBS := $(shell pkg-config --libs openssl 2>/dev/null || echo -lssl -lcrypto)
+endif
+
+# 完全静态链接（零依赖单文件）；无静态 OpenSSL 时自动降级
 STATIC_ALL ?= 1
+ifeq ($(USE_STATIC_OSSL),0)
+  STATIC_ALL := 0
+endif
 ifeq ($(STATIC_ALL),1)
 LDFLAGS ?= -static -pthread -lutil $(OSSL_LIBS) -ldl
 else
-LDFLAGS ?= -pthread -lutil -Wl,-Bstatic $(OSSL_LIBS) -Wl,-Bdynamic -ldl
+  ifeq ($(USE_STATIC_OSSL),1)
+  LDFLAGS ?= -pthread -lutil -Wl,-Bstatic $(OSSL_LIBS) -Wl,-Bdynamic -ldl
+  else
+  LDFLAGS ?= -pthread -lutil $(OSSL_LIBS) -ldl
+  endif
 endif
 
 CFLAGS += -I$(OSSL_INC)

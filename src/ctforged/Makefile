@@ -11,9 +11,9 @@ BPFTOOL      := /tmp/bpftool
 BPFTOOLTGZ   := ../tools/$(ARCH)/bpftool.tar.gz
 PHONY        := default
 CC           := clang
-CFLAGS       := -g -O0 -Wno-deprecated-declarations -I. $(EXTRA_FLAGS)
+CFLAGS       := -g -O0 -Wno-deprecated-declarations -I. -I../ctforged $(EXTRA_FLAGS)
 LDFLAGS := -lelf -lz -lpthread -ldl -lssl -lcrypto -llzma -luv -ljson-c -lbpf
-SRCS         := ctforgectl.c ctforged.c config.c \
+SRCS         := ctforged.c config.c \
                 pool.c log.c tools.c payload.c netlink.c signature.c \
                 server.c error.c
 OBJS         := $(SRCS:.c=.o)
@@ -23,7 +23,7 @@ default: build
 
 
 PHONY += build
-build: ctforged ctforgectl
+build: ctforged
 
 
 $(LIBBPFA):
@@ -44,20 +44,16 @@ ctforgectl: ctforgectl.o config.o log.o tools.o
 
 
 
-ctforged: ctforged.o config.o pool.o log.o tools.o payload.o netlink.o signature.o server.o error.o  $(LIBBPFA)
-	$(CC) -o $@ ctforged.o config.o pool.o log.o tools.o payload.o netlink.o signature.o server.o error.o $(LDFLAGS) \
+ctforged: $(OBJS)
+	$(CC) -o $@ $^ $(LDFLAGS) \
 		-Wl,--whole-archive  $(LIBBPFA) -Wl,--no-whole-archive \
 		-lelf -lz -lpthread -ldl -lssl -lcrypto -llzma -luv -ljson-c \
 		-Wl,--export-dynamic
 	@echo "-> $@ build success"
 
 
-%.o: %.c
-	$(CC) $(CFLAGS) -c $< -o $@
-
-
 PHONY += install
-install:
+install: ctforged
 	install -d $(DESTDIR)/etc/ctforge
 	install -m 644 ctforge.cfg $(DESTDIR)/etc/ctforge/ctforge.cfg
 	@ls -alh $(DESTDIR)/etc/ctforge/ctforge.cfg
@@ -66,8 +62,6 @@ install:
 	install -d $(DESTDIR)/usr/sbin/
 	install -m 755 ctforged $(DESTDIR)/usr/sbin/ctforged
 	@ls -alh $(DESTDIR)/usr/sbin/ctforged
-	install -m 755 ctforgectl $(DESTDIR)/usr/sbin/ctforgectl
-	@ls -alh $(DESTDIR)/usr/sbin/ctforgectl
 	install -d $(DESTDIR)/etc/systemd/system
 	install -m 644 ctforged.service $(DESTDIR)/etc/systemd/system/ctforged.service
 	@ls -alh $(DESTDIR)/etc/systemd/system/ctforged.service

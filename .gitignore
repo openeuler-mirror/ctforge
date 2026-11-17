@@ -114,3 +114,7 @@ dist.zip
 .env
 .env.*
 !.env.example
+
+# ---- GitCode alt-PR 自动化状态（宿主工具产生）----
+.gitcode_alt_pr_state.json
+.gitcode_alt_pr.log

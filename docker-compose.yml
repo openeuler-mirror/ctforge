@@ -17,6 +17,7 @@ services:
       - "9443:9443"       # Web 控制台 + REST API（HTTPS，自签证书）
       - "9000:9000"       # Agent 控制通道（TLS）
       - "9001:9001/udp"   # 局域网发现广播
+      - "2222:2222"       # SSH 跳板机（可选，关闭服务端 CTF_SSH=空）
     volumes:
       # 持久化账户与会话状态
       - ctforge-data:/var/lib/ctforge
