@@ -37,6 +37,47 @@ RUN set -eux; \
     ls -la ctforge-agent; \
     ( ldd ctforge-agent || true ) 2>&1 | head -3
 
+# ---------- ctforged + ctforgectl（eBPF 守护进程，容器内静态编译） ----------
+# 静态链接：下载到 glibc 目标主机（Fedora/Ubuntu/OpenWrt）可直接运行，不依赖 musl
+FROM alpine:3.20 AS ctforged-builder
+RUN apk add --no-cache clang make musl-dev openssl linux-headers \
+        libbpf-dev elfutils-dev zlib-static zstd-static \
+        libuv-dev libuv-static json-c-dev \
+        openssl-dev openssl-libs-static xz-static
+WORKDIR /build
+# 拷入关键源文件（key 头文件缺失时由 user_sm2_test 现场生成）
+COPY src/ctforged/ ./ctforged/
+COPY src/ctforgectl/ ./ctforgectl/
+COPY src/key/ ./key/
+# 在容器里现场生成 ECDSA key + sm2_signature.h，再静态编译 ctforged / ctforgectl
+RUN set -eux; \
+    cd key; \
+    openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256 \
+        -out CTFORGED/private.pem; \
+    openssl pkey -in CTFORGED/private.pem -pubout -out CTFORGED/public.pem; \
+    gcc -O2 -std=c99 -o user_sm2_test user_sm2_test.c -lssl -lcrypto; \
+    ./user_sm2_test; \
+    cp sm2_signature.h CTFORGED/; \
+    \
+    cd ../ctforged; \
+    clang -g -O0 -Wno-deprecated-declarations -I. -I/usr/include \
+        -c ctforged.c config.c pool.c log.c tools.c payload.c netlink.c signature.c server.c error.c; \
+    clang -static -o ctforged \
+        ctforged.o config.o pool.o log.o tools.o payload.o netlink.o signature.o server.o error.o \
+        -lbpf -lelf -lzstd -lz -lpthread -ldl -lssl -lcrypto -llzma -luv -ljson-c \
+        -Wl,--export-dynamic; \
+    \
+    cd ../ctforgectl; \
+    clang -g -O0 -Wno-deprecated-declarations -I. -I../ctforged -I/usr/include \
+        -c ctforgectl.c ../ctforged/config.c ../ctforged/log.c ../ctforged/tools.c; \
+    clang -static -o ctforgectl \
+        ctforgectl.o config.o log.o tools.o \
+        -lbpf -lelf -lzstd -lz -lpthread -ldl -lssl -lcrypto -llzma -luv -ljson-c; \
+    \
+    echo "== 静态性验证 =="; \
+    ( ldd ../ctforged/ctforged || true ) 2>&1 | head -3; \
+    ( ldd ctforgectl || true ) 2>&1 | head -3
+
 # ---------- 运行镜像 ----------
 FROM alpine:3.20
 RUN apk add --no-cache ca-certificates tzdata wget && \
@@ -46,12 +87,15 @@ RUN apk add --no-cache ca-certificates tzdata wget && \
 WORKDIR /app
 
 # 拷贝产物
-COPY --from=backend  /out/ctforge-server            /usr/local/bin/ctforge-server
-COPY --from=frontend /build/dist                    /app/static
-COPY --from=agent-builder /build/clients/ctforge-agent /app/bin/ctforge-agent-amd64
+COPY --from=backend       /out/ctforge-server                 /usr/local/bin/ctforge-server
+COPY --from=frontend      /build/dist                         /app/static
+COPY --from=agent-builder /build/clients/ctforge-agent        /app/bin/ctforge-agent-amd64
+COPY --from=ctforged-builder /build/ctforged/ctforged         /app/bin/ctforged-amd64
+COPY --from=ctforged-builder /build/ctforgectl/ctforgectl     /app/bin/ctforgectl
 
-# 软链，让 /download/agent 的默认查找路径（bin/ctforge-agent-amd64）能命中
-RUN ln -sf /app/bin/ctforge-agent-amd64 /app/bin/ctforge-agent
+# 软链，让 /download/agent 与 /download/ctforged 的默认查找路径命中
+RUN ln -sf /app/bin/ctforge-agent-amd64 /app/bin/ctforge-agent \
+ && ln -sf /app/bin/ctforged-amd64       /app/bin/ctforged
 
 ENV TZ=Asia/Shanghai \
     CTF_HTTP=:8080 \
@@ -62,7 +106,8 @@ ENV TZ=Asia/Shanghai \
     CTF_DATA=/var/lib/ctforge \
     CTF_TLS_CERT=/etc/ctforge/server.crt \
     CTF_TLS_KEY=/etc/ctforge/server.key \
-    CTF_AGENT_BIN_DIR=/app/bin
+    CTF_AGENT_BIN_DIR=/app/bin \
+    CTF_CTFD_BIN_DIR=/app/bin
 
 EXPOSE 8080/tcp 9443/tcp 9000/tcp 9001/udp 2222/tcp
 VOLUME ["/var/lib/ctforge", "/etc/ctforge"]
