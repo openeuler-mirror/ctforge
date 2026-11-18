@@ -1,9 +1,68 @@
 #include "ctforge.h"
 
+/* Hard cap for a single connection's receive buffer (DoS guard) */
+#define RECV_BUFFER_MAX 8192
+
 struct ctforged_ringbuf {
 	struct ctforge_conn_ctx *ctx;
 	json_object *result;
 };
+
+/**
+ * @brief Check a peer uid against the configured control-plane whitelist.
+ *
+ * Root (uid 0) is always allowed; the optional "control_uids" config
+ * array grants additional uids (by number or user name).
+ */
+static int control_uid_allowed(uid_t uid)
+{
+	int i;
+
+	if (uid == 0)
+		return 1;
+
+	for (i = 0; i < ctforged_config.control_uid_count; i++) {
+		if (ctforged_config.control_uids[i] == uid)
+			return 1;
+	}
+
+	return 0;
+}
+
+/**
+ * @brief Authenticate an accepted unix-socket client via SO_PEERCRED.
+ *
+ * The kernel-provided credentials cannot be forged by the peer, so
+ * this is the authoritative check for the local control plane.
+ *
+ * @return 0 if the peer is allowed, -1 otherwise (connection closed).
+ */
+static int authorize_unix_peer(uv_stream_t *client)
+{
+	struct ucred cred;
+	socklen_t cred_len = sizeof(cred);
+	uv_os_fd_t fd;
+
+	if (uv_fileno((const uv_handle_t *)client, &fd) != 0 || fd < 0) {
+		pr_err("Failed to get client fd for peer credentials");
+		return -1;
+	}
+
+	if (getsockopt(fd, SOL_SOCKET, SO_PEERCRED, &cred, &cred_len) != 0) {
+		pr_err("getsockopt(SO_PEERCRED) failed: %s", strerror(errno));
+		return -1;
+	}
+
+	if (!control_uid_allowed(cred.uid)) {
+		pr_warn("Rejected control-plane client uid=%u pid=%d",
+			cred.uid, cred.pid);
+		return -1;
+	}
+
+	pr_info("Authorized control-plane client uid=%u pid=%d",
+		cred.uid, cred.pid);
+	return 0;
+}
 
 /**
  * @brief Cleanup client context on connection close.
@@ -285,7 +344,7 @@ void handle_log(struct ctforge_conn_ctx *ctx, json_object *result)
 	const char *resp_str =
 		json_object_to_json_string_ext(result, JSON_C_TO_STRING_PLAIN);
 
-	if (result)
+	if (resp_str)
 		send_message_to_client(ctx, resp_str);
 	else
 		make_err_res(ctx, "Failed to serialize response");
@@ -361,6 +420,9 @@ static int do_one_hard_work(struct ctforge_conn_ctx *ctx, json_object *req)
 		json_object_object_add(resp, "resmsg",
 				       ops_fn_result ? ops_fn_result :
 							     json_object_new_null());
+		/* ownership moved to resp; avoid double free in error path */
+		ops_fn_result = NULL;
+
 		const char *resp_str = json_object_to_json_string_ext(
 			resp, JSON_C_TO_STRING_PLAIN);
 
@@ -425,6 +487,8 @@ static void do_per_request(struct ctforge_conn_ctx *ctx, const char *client_msg)
 
 	if (len == 0 || len > 1024) {
 		pr_err("Invalid message length: %zu", len);
+		send_message_to_client(ctx,
+				       "Invalid Request: message too long");
 		return;
 	}
 
@@ -475,7 +539,17 @@ static void on_client_read(uv_stream_t *stream, ssize_t nread,
 		return;
 	}
 
-	// Append new data to receive buffer
+	// Append new data to receive buffer (with a hard cap: a client
+	// sending data without newline would otherwise grow it unbounded)
+	if (ctx->recv_buffer_len + nread > RECV_BUFFER_MAX) {
+		pr_err("Receive buffer limit %d exceeded, closing connection",
+		       RECV_BUFFER_MAX);
+		free(buf->base);
+		send_message_to_client(ctx, "Request too large");
+		request_close_client(ctx);
+		return;
+	}
+
 	char *new_buf =
 		(char *)realloc(ctx->recv_buffer, ctx->recv_buffer_len + nread);
 	if (!new_buf) {
@@ -521,6 +595,12 @@ static void alloc_buffer(uv_handle_t *handle, size_t suggested_size,
 			 uv_buf_t *buf)
 {
 	buf->base = (char *)malloc(suggested_size);
+
+	/* libuv convention: len = 0 tells the loop allocation failed */
+	if (!buf->base) {
+		buf->len = 0;
+		return;
+	}
 	buf->len = suggested_size;
 }
 
@@ -548,14 +628,9 @@ void on_new_connection(uv_stream_t *server, int status)
 	int ret;
 
 	if (server->type == UV_TCP) {
-		uv_tcp_init(ctforged_uv_loop, &ctx->stream_handle.tcp);
-		ctx->stream_handle.tcp.data = ctx;
-		ret = uv_accept(server, (uv_stream_t *)&ctx->stream_handle.tcp);
+		ret = uv_tcp_init(ctforged_uv_loop, &ctx->stream_handle.tcp);
 	} else if (server->type == UV_NAMED_PIPE) {
-		uv_pipe_init(ctforged_uv_loop, &ctx->stream_handle.pipe, 0);
-		ctx->stream_handle.pipe.data = ctx;
-		ret = uv_accept(server,
-				(uv_stream_t *)&ctx->stream_handle.pipe);
+		ret = uv_pipe_init(ctforged_uv_loop, &ctx->stream_handle.pipe, 0);
 	} else {
 		free(ctx);
 		pr_err("Unsupported server stream type");
@@ -563,9 +638,34 @@ void on_new_connection(uv_stream_t *server, int status)
 	}
 
 	if (ret != 0) {
+		/* init failed: handle is not registered in the loop yet */
 		free(ctx);
+		pr_err("stream init failed: %s", uv_strerror(ret));
+		return;
+	}
+
+	ctx->stream_handle.tcp.data = ctx;
+	ret = uv_accept(server, (uv_stream_t *)&ctx->stream_handle);
+
+	if (ret != 0) {
+		/* handle is initialized and tracked by the loop:
+		 * it must go through uv_close, not a raw free
+		 */
+		uv_close((uv_handle_t *)&ctx->stream_handle, on_client_close);
 		pr_err("uv_accept failed: %s", uv_strerror(ret));
 		return;
+	}
+
+	/* Unix-socket clients must pass SO_PEERCRED authentication before
+	 * any request is read; TCP is legacy and stays unauthenticated
+	 * (config should point listen at a unix socket).
+	 */
+	if (server->type == UV_NAMED_PIPE) {
+		if (authorize_unix_peer((uv_stream_t *)&ctx->stream_handle) != 0) {
+			uv_close((uv_handle_t *)&ctx->stream_handle,
+				 on_client_close);
+			return;
+		}
 	}
 
 	uv_read_start((uv_stream_t *)&ctx->stream_handle, alloc_buffer,
@@ -576,17 +676,39 @@ void on_new_connection(uv_stream_t *server, int status)
 /**
  * @brief Start the server based on configuration.
  */
-int start_uv_server(struct ctforge_config *ctforged_config)
+int start_uv_server(struct ctforge_config *daemon_cfg)
 {
-	const char *listen_addr = ctforged_config->listen;
+	const char *listen_addr = daemon_cfg->listen;
+	struct stat st;
 	int r;
 
 	if (strncmp(listen_addr, "unix://", 7) == 0) {
 		const char *path = listen_addr + 7;
 
+		/* Remove a stale socket left by an unclean shutdown, so
+		 * the daemon does not spin on EADDRINUSE after a crash.
+		 * Only unlinks when the path is an actual socket file.
+		 */
+		if (stat(path, &st) == 0 && S_ISSOCK(st.st_mode)) {
+			pr_warn("Removing stale socket file %s", path);
+			(void)unlink(path);
+		}
+
 		uv_pipe_init(ctforged_uv_loop, &ctforged_unix_server, 0);
 		r = uv_pipe_bind(&ctforged_unix_server, path);
 		if (r == 0) {
+			/* Explicit chmod overrides a permissive umask
+			 * (a 0666 umask would otherwise yield 0777).
+			 * Root-only setups stay 0660; when non-root uids
+			 * are whitelisted they must also be able to
+			 * connect() the socket, so open it to all local
+			 * users -- SO_PEERCRED remains the authoritative
+			 * gate for every accepted connection.
+			 */
+			mode_t sock_mode = daemon_cfg->control_uid_count > 0 ?
+						   0666 : 0660;
+
+			(void)chmod(path, sock_mode);
 			r = uv_listen((uv_stream_t *)&ctforged_unix_server, 128,
 				      on_new_connection);
 		}
@@ -595,7 +717,10 @@ int start_uv_server(struct ctforge_config *ctforged_config)
 			return -1;
 		}
 		register_cleanup(ctforged_clean_sock, "clean_unix_socket");
-		pr_info("Listening on Unix socket: %s", path);
+		pr_info("Listening on Unix socket: %s (SO_PEERCRED auth, "
+			"root + %d whitelisted uid%s)",
+			path, daemon_cfg->control_uid_count,
+			daemon_cfg->control_uid_count == 1 ? "" : "s");
 	} else {
 		char *addr_copy = strdup(listen_addr);
 
