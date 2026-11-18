@@ -14,6 +14,10 @@ FROM golang:1.26-alpine AS backend
 WORKDIR /build
 RUN apk add --no-cache git ca-certificates
 COPY src/server/go.mod src/server/go.sum ./
+ENV GOPROXY="https://goproxy.cn,https://mirrors.aliyun.com/goproxy/,direct" \
+    GOSUMDB=off \
+    GOFLAGS=-mod=mod \
+    CGO_ENABLED=0
 RUN go mod download
 COPY src/server/ ./
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/ctforge-server ./cmd/server
