@@ -11,22 +11,22 @@ int create_netlink_socket(int protocol)
 	int sock_fd = socket(PF_NETLINK, SOCK_RAW, protocol);
 
 	if (sock_fd < 0) {
-		pr_err("netlink socket connect failed!");
-		pthread_exit((void *)(intptr_t)EXIT_FAILURE);
+		pr_err("netlink socket create failed: %s", strerror(errno));
+		return -1;
 	}
 	memset(&src_addr, 0, sizeof(src_addr));
 	src_addr.nl_family = AF_NETLINK;
 	src_addr.nl_pid = getpid();
 	src_addr.nl_groups = 0;
 	if (bind(sock_fd, (struct sockaddr *)&src_addr, sizeof(src_addr)) < 0) {
-		pr_err("netlink bind failed!");
+		pr_err("netlink bind failed: %s", strerror(errno));
 		close(sock_fd);
-		exit(EXIT_FAILURE);
+		return -1;
 	}
 	return sock_fd;
 }
 
-void send_nl_handshake(int sock_fd)
+int send_nl_handshake(int sock_fd)
 {
 	struct nlmsghdr *nlh = NULL;
 	struct sockaddr_nl dest_addr;
@@ -38,11 +38,10 @@ void send_nl_handshake(int sock_fd)
 	dest_addr.nl_pid = 0;
 	dest_addr.nl_groups = 0;
 
-	nlh = (struct nlmsghdr *)malloc(NLMSG_SPACE(MAX_PAYLOAD));
+	nlh = (struct nlmsghdr *)calloc(1, NLMSG_SPACE(MAX_PAYLOAD));
 	if (!nlh) {
-		pr_err("malloc");
-		close(sock_fd);
-		exit(EXIT_FAILURE);
+		pr_err("netlink handshake malloc failed");
+		return -1;
 	}
 
 	nlh->nlmsg_len = NLMSG_SPACE(MAX_PAYLOAD);
@@ -64,16 +63,14 @@ void send_nl_handshake(int sock_fd)
 
 	pr_info("Netlink sending handshake to kernel %d", nlh->nlmsg_len);
 	if (sendmsg(sock_fd, &msg, 0) < 0) {
-		pr_err("sendmsg");
+		pr_err("netlink handshake sendmsg failed: %s",
+		       strerror(errno));
 		free(nlh);
-		close(sock_fd);
-		exit(EXIT_FAILURE);
+		return -1;
 	}
 
-	if (nlh != NULL) {
-		free(nlh);
-		nlh = NULL;
-	}
+	free(nlh);
+	return 0;
 }
 
 void do_ctforge_nl_log(struct nlmsghdr *nlh)
@@ -81,7 +78,8 @@ void do_ctforge_nl_log(struct nlmsghdr *nlh)
 	char *str;
 
 	str = (char *)NLMSG_DATA(nlh);
-	pr_info("msg:[%s], len:%d, len:%d", str, strlen(str), nlh->nlmsg_len);
+	pr_info("msg:[%s], len:%zu, len:%d", str, strlen(str),
+		nlh->nlmsg_len);
 	ctforged_klog_to_file(str);
 }
 
@@ -90,7 +88,8 @@ void do_ctforge_nl_ping(struct nlmsghdr *nlh)
 	char *str;
 
 	str = (char *)NLMSG_DATA(nlh);
-	pr_info("msg:[%s], len:%d, len:%d", str, strlen(str), nlh->nlmsg_len);
+	pr_info("msg:[%s], len:%zu, len:%d", str, strlen(str),
+		nlh->nlmsg_len);
 	ctforged_klog_to_file(str);
 }
 
@@ -142,58 +141,6 @@ void tackle_nl_msg(struct nlmsghdr *nlh)
 	}
 }
 
-void do_send_nl_ctl(int sock_fd, struct ctforged_params *s)
-{
-	struct nlmsghdr *nlh = NULL;
-	struct sockaddr_nl dest_addr;
-	struct iovec iov;
-	struct msghdr msg;
-
-	memset(&dest_addr, 0, sizeof(dest_addr));
-	dest_addr.nl_family = AF_NETLINK;
-	dest_addr.nl_pid = 0;
-	dest_addr.nl_groups = 0;
-
-	nlh = (struct nlmsghdr *)malloc(NLMSG_SPACE(MAX_PAYLOAD));
-	if (!nlh) {
-		pr_err("malloc failed!");
-		close(sock_fd);
-		exit(EXIT_FAILURE);
-	}
-
-	nlh->nlmsg_len = NLMSG_SPACE(sizeof(struct ctforged_params));
-	nlh->nlmsg_pid = getpid();
-	nlh->nlmsg_flags = 0;
-	nlh->nlmsg_type = s->nlmsg_type;
-	nlh->nlmsg_seq = 0;
-
-	memcpy(NLMSG_DATA(nlh), s, sizeof(struct ctforged_params));
-
-	iov.iov_base = (void *)nlh;
-	iov.iov_len = nlh->nlmsg_len;
-
-	memset(&msg, 0, sizeof(msg));
-	msg.msg_name = (void *)&dest_addr;
-	msg.msg_namelen = sizeof(dest_addr);
-	msg.msg_iov = &iov;
-	msg.msg_iovlen = 1;
-
-	pr_info("send msg %d", nlh->nlmsg_len + NLMSG_HDRLEN);
-	//	hexdump(nlh, nlh->nlmsg_len + NLMSG_HDRLEN);
-	if (sendmsg(sock_fd, &msg, 0) < 0) {
-		pr_err("sendmsg failed!");
-		free(nlh);
-		close(sock_fd);
-		exit(EXIT_FAILURE);
-	}
-	free(nlh);
-}
-
-void ctforge_nl_ctl(struct ctforged_params *s)
-{
-	do_send_nl_ctl(netlink_sock_fd, s);
-}
-
 void netlink_loop(void)
 {
 	struct nlmsghdr *nlh = NULL;
@@ -202,18 +149,26 @@ void netlink_loop(void)
 	struct iovec iov;
 
 	netlink_sock_fd = create_netlink_socket(NETLINK_CTFORGE);
+	if (netlink_sock_fd < 0) {
+		pr_err("netlink loop terminated: socket setup failed");
+		return;
+	}
 	pr_info("Netlink bind success!");
 
-	send_nl_handshake(netlink_sock_fd);
+	if (send_nl_handshake(netlink_sock_fd) != 0) {
+		pr_err("netlink loop terminated: handshake failed");
+		close(netlink_sock_fd);
+		return;
+	}
 	pr_info("Netlink waiting for messages from the kernel");
 
 	while (1) {
-		nlh = (struct nlmsghdr *)malloc(NLMSG_SPACE(MAX_MSG_SIZE));
+		nlh = (struct nlmsghdr *)calloc(1, NLMSG_SPACE(MAX_MSG_SIZE));
 		if (!nlh) {
-			pr_err("malloc");
-			exit(EXIT_FAILURE);
+			pr_err("netlink malloc failed, retry in 1s");
+			sleep(1);
+			continue;
 		}
-		memset(nlh, 0, NLMSG_SPACE(MAX_PAYLOAD));
 		iov.iov_base = (void *)nlh;
 		iov.iov_len = NLMSG_SPACE(MAX_MSG_SIZE);
 
@@ -224,10 +179,14 @@ void netlink_loop(void)
 		msg.msg_iovlen = 1;
 
 		if (recvmsg(netlink_sock_fd, &msg, 0) < 0) {
-			pr_err("recvmsg failed!");
+			if (errno == EINTR) {
+				free(nlh);
+				continue;
+			}
+			pr_err("netlink recvmsg failed: %s",
+			       strerror(errno));
 			free(nlh);
-			close(netlink_sock_fd);
-			exit(EXIT_FAILURE);
+			break;
 		}
 		pr_debug("msg type: %d, msg len: %d [%d,%d]", nlh->nlmsg_type,
 			 nlh->nlmsg_len, NLMSG_HDRLEN,
@@ -240,13 +199,14 @@ void netlink_loop(void)
 			       NLMSG_SPACE(MAX_PAYLOAD));
 			pr_err("type %d", nlh->nlmsg_type);
 			pr_err("info %x", nlh->nlmsg_flags);
+			free(nlh);
 			continue;
 		}
 
 		tackle_nl_msg(nlh);
-		if (nlh != NULL) {
-			free(nlh);
-			nlh = NULL;
-		}
+		free(nlh);
 	}
+
+	close(netlink_sock_fd);
+	pr_err("netlink loop exited");
 }
