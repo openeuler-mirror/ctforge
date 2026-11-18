@@ -3,6 +3,70 @@
 struct cleanup_task tasks[MAX_CLEANUP_TASKS];
 int task_count;
 
+/* Parse the "control_uids" JSON array into the config whitelist.
+ * Accepts numeric uids or user names; empty/absent field falls back
+ * to root-only. Returns 0 on success, -1 on a malformed entry.
+ */
+static int parse_control_uids(json_object *root, struct ctforge_config *cfg)
+{
+	json_object *uids_obj = NULL;
+	size_t i, count;
+
+	cfg->control_uid_count = 0;
+
+	if (!json_object_object_get_ex(root, "control_uids", &uids_obj))
+		return 0;
+
+	if (json_object_is_type(uids_obj, json_type_null))
+		return 0;
+
+	if (!json_object_is_type(uids_obj, json_type_array)) {
+		pr_err("Config error: field 'control_uids' must be an array\n");
+		return -1;
+	}
+
+	count = json_object_array_length(uids_obj);
+	if (count > CTFORGE_MAX_CONTROL_UIDS) {
+		pr_err("Config error: 'control_uids' has %zu entries, max is %d\n",
+		       count, CTFORGE_MAX_CONTROL_UIDS);
+		return -1;
+	}
+
+	for (i = 0; i < count; i++) {
+		json_object *ent = json_object_array_get_idx(uids_obj, i);
+		const char *name;
+		struct passwd *pw;
+		long val;
+
+		if (json_object_is_type(ent, json_type_int)) {
+			val = (long)json_object_get_int(ent);
+			if (val < 0) {
+				pr_err("Config error: negative uid in 'control_uids'\n");
+				return -1;
+			}
+			cfg->control_uids[cfg->control_uid_count++] =
+				(uid_t)val;
+			continue;
+		}
+
+		name = json_object_get_string(ent);
+		if (!name || strlen(name) == 0) {
+			pr_err("Config error: empty entry in 'control_uids'\n");
+			return -1;
+		}
+
+		pw = getpwnam(name);
+		if (!pw) {
+			pr_err("Config error: unknown user '%s' in 'control_uids'\n",
+			       name);
+			return -1;
+		}
+		cfg->control_uids[cfg->control_uid_count++] = pw->pw_uid;
+	}
+
+	return 0;
+}
+
 char *ctforged_config_strdup(const char *s, const char *field_name)
 {
 	char *dup = NULL;
@@ -208,6 +272,10 @@ use_defaults:
 		goto cleanup;
 	cfg->public_key = ctforged_config_strdup(public_key_val, "public_key");
 	if (!cfg->public_key)
+		goto cleanup;
+
+	/* Optional uid whitelist for the control plane (SO_PEERCRED). */
+	if (parse_control_uids(root, cfg) != 0)
 		goto cleanup;
 
 	register_cleanup(ctforged_clean_config, "clean config");
