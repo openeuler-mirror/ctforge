@@ -26,9 +26,25 @@ struct ctforge_threadpool *threadpool_create(int thread_count, int queue_size)
 	pool->tasks = (struct ctforge_task *)malloc(
 		sizeof(struct ctforge_task) * queue_size);
 
-	if ((pthread_mutex_init(&(pool->lock), NULL) != 0) ||
-	    (pthread_cond_init(&(pool->notify), NULL) != 0) ||
-	    (pool->threads == NULL) || (pool->tasks == NULL)) {
+	if (!pool->threads || !pool->tasks) {
+		free(pool->threads);
+		free(pool->tasks);
+		free(pool);
+		return NULL;
+	}
+
+	if (pthread_mutex_init(&(pool->lock), NULL) != 0) {
+		free(pool->threads);
+		free(pool->tasks);
+		free(pool);
+		return NULL;
+	}
+
+	if (pthread_cond_init(&(pool->notify), NULL) != 0) {
+		pthread_mutex_destroy(&(pool->lock));
+		free(pool->threads);
+		free(pool->tasks);
+		free(pool);
 		return NULL;
 	}
 
@@ -176,6 +192,10 @@ int threadpool_free(struct ctforge_threadpool *pool)
 int threadpoll_init(void)
 {
 	workpool = threadpool_create(MAX_THREADS, QUEUE_SIZE);
+	if (!workpool) {
+		pr_err("workpool create failed");
+		return -1;
+	}
 	pr_info("workpool inited");
 	return 0;
 }
