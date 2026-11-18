@@ -103,9 +103,7 @@ void ctforged_klog_to_file(char *info)
 
 	if (!info) {
 		/* Log error to stderr as fallback */
-		pthread_mutex_lock(&ctforged_output_lock);
 		pr_err("klog: null message pointer\n");
-		pthread_mutex_unlock(&ctforged_output_lock);
 		return;
 	}
 
@@ -118,9 +116,7 @@ void ctforged_klog_to_file(char *info)
 	/* Guard against invalid fd */
 	if (ctforged_klog_fd < 0) {
 		pthread_mutex_unlock(&ctforged_klog_lock);
-		pthread_mutex_lock(&ctforged_output_lock);
 		pr_err("klog: log file descriptor closed\n");
-		pthread_mutex_unlock(&ctforged_output_lock);
 		return;
 	}
 
@@ -134,9 +130,7 @@ void ctforged_klog_to_file(char *info)
 			}
 			/* Log write error to stderr */
 			pthread_mutex_unlock(&ctforged_klog_lock);
-			pthread_mutex_lock(&ctforged_output_lock);
 			pr_err("klog: write failed: %s\n", strerror(errno));
-			pthread_mutex_unlock(&ctforged_output_lock);
 			return;
 		}
 		info += rc;
@@ -148,10 +142,8 @@ void ctforged_klog_to_file(char *info)
 	if (rc < 0) {
 		if (errno != EINTR) {
 			pthread_mutex_unlock(&ctforged_klog_lock);
-			pthread_mutex_lock(&ctforged_output_lock);
 			pr_err("klog: failed to write newline: %s\n",
 			       strerror(errno));
-			pthread_mutex_unlock(&ctforged_output_lock);
 			return;
 		}
 		/* If EINTR on newline, we still proceed to fsync (best effort) */
@@ -169,9 +161,7 @@ void ctforged_slog_to_file(char *info)
 	ssize_t rc;
 
 	if (!info) {
-		pthread_mutex_lock(&ctforged_output_lock);
 		pr_err("slog: null message pointer\n");
-		pthread_mutex_unlock(&ctforged_output_lock);
 		return;
 	}
 
@@ -183,9 +173,7 @@ void ctforged_slog_to_file(char *info)
 
 	if (ctforged_slog_fd < 0) {
 		pthread_mutex_unlock(&ctforged_slog_lock);
-		pthread_mutex_lock(&ctforged_output_lock);
 		pr_err("slog: log file descriptor closed\n");
-		pthread_mutex_unlock(&ctforged_output_lock);
 		return;
 	}
 
@@ -195,9 +183,7 @@ void ctforged_slog_to_file(char *info)
 			if (errno == EINTR)
 				continue;
 			pthread_mutex_unlock(&ctforged_slog_lock);
-			pthread_mutex_lock(&ctforged_output_lock);
 			pr_err("slog: write failed: %s\n", strerror(errno));
-			pthread_mutex_unlock(&ctforged_output_lock);
 			return;
 		}
 		info += rc;
@@ -208,10 +194,8 @@ void ctforged_slog_to_file(char *info)
 	if (rc < 0) {
 		if (errno != EINTR) {
 			pthread_mutex_unlock(&ctforged_slog_lock);
-			pthread_mutex_lock(&ctforged_output_lock);
 			pr_err("slog: failed to write newline: %s\n",
 			       strerror(errno));
-			pthread_mutex_unlock(&ctforged_output_lock);
 			return;
 		}
 	}
