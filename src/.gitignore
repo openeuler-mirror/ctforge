@@ -1,0 +1,6 @@
+*.o
+ctforge-hornetgen
+ctforge-lsiggen
+*.so
+
+
