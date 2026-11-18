@@ -1,14 +1,5 @@
 #include "ctforge.h"
 
-void *policy_context_gen(void)
-{
-	void *data;
-
-	data = malloc(1024);
-	snprintf(data, 1024, "%s", "this is raw data");
-	return data;
-}
-
 unsigned char *load_file(char *filename, size_t *len)
 {
 	struct stat f_stat;
@@ -47,121 +38,26 @@ end:
 	return data;
 }
 
-void dump_bin2str(char *prefix, unsigned char *bin, int len)
+/*
+ * SM2 digest helpers. The one-shot EVP_DigestSign/EVP_DigestVerify
+ * path disagrees on the implicit SM2 user id between OpenSSL patch
+ * releases (a host on 3.0.13 and a guest on 3.0.12 produce mutually
+ * unverifiable signatures), so sign and verify go through the
+ * low-level EVP_PKEY_sign/EVP_PKEY_verify API with the digest
+ * computed here: SM3 over the message, hashed identically by every
+ * OpenSSL version.
+ */
+#define SM2_DIGEST_LEN	32
+
+static int sm2_msg_digest(const char *msg, size_t msg_len,
+			  unsigned char digest[SM2_DIGEST_LEN])
 {
-	int i;
+	unsigned int len = SM2_DIGEST_LEN;
 
-	printf("%s", prefix);
-	for (i = 0; i < len; i++)
-		printf("%02x", bin[i]);
-	printf("");
-}
-
-void dump_siginfo(char *der, int derlen)
-{
-	unsigned char sig_r[32], sig_s[32];
-	ECDSA_SIG *sig = NULL;
-	const BIGNUM *r, *s;
-
-	sig = d2i_ECDSA_SIG(NULL, (const unsigned char **)&der, derlen);
-	if (!sig) {
-		pr_err("Failed to decode DER ECDSA signature");
-		return;
-	}
-	ECDSA_SIG_get0(sig, &r, &s);
-	BN_bn2binpad(r, sig_r, sizeof(sig_r));
-	BN_bn2binpad(s, sig_s, sizeof(sig_r));
-	dump_bin2str("sig_r: ", sig_r, 32);
-	dump_bin2str("sig_s: ", sig_s, 32);
-	ECDSA_SIG_free(sig);
-}
-
-int get_sm2siginfo(unsigned char *der, int derlen, unsigned char sig_r[32],
-		   unsigned char sig_s[32])
-{
-	ECDSA_SIG *sig = NULL;
-	const BIGNUM *r, *s;
-
-	sig = d2i_ECDSA_SIG(NULL, (const unsigned char **)&der, derlen);
-	if (!sig) {
-		pr_err("Failed to decode DER ECDSA signature");
+	if (!msg || !EVP_Digest(msg, msg_len, digest, &len, EVP_sm3(), NULL))
 		return -1;
-	}
-	ECDSA_SIG_get0(sig, &r, &s);
-	BN_bn2binpad(r, sig_r, 32);
-	BN_bn2binpad(s, sig_s, 32);
-	ECDSA_SIG_free(sig);
-	return 0;
-}
-
-unsigned char *get_pkey_alloc(const EC_KEY *eckey, int *len)
-{
-	unsigned char *buf = NULL;
-	const EC_GROUP *group = EC_KEY_get0_group(eckey);
-	const EC_POINT *pt = EC_KEY_get0_public_key(eckey);
-
-	*len = EC_POINT_point2oct(group, pt, POINT_CONVERSION_UNCOMPRESSED,
-				  NULL, 0, NULL);
-	buf = (unsigned char *)malloc(*len);
-	EC_POINT_point2oct(group, pt, POINT_CONVERSION_UNCOMPRESSED,
-			   (unsigned char *)buf, *len, NULL);
-	return buf;
-}
-
-void dump_pkey(EC_KEY *ec_key)
-{
-	unsigned char *buf;
-	int len;
-
-	buf = get_pkey_alloc(ec_key, &len);
-	if (buf) {
-		dump_bin2str("pkey: ", buf, len);
-		free(buf);
-	}
-}
-
-int covert_sig_to_asn1(BIGNUM *bn_r, BIGNUM *bn_s, char *sig_p, size_t *siglen)
-{
-	unsigned char sig_r[32], sig_s[32];
-	unsigned char *der = NULL;
-	int der_len;
-	ECDSA_SIG *sig = ECDSA_SIG_new();
-	BIGNUM *r_copy = NULL, *s_copy = NULL;
-
-	if (BN_bn2binpad(bn_r, sig_r, sizeof(sig_r)) != sizeof(sig_r))
+	if (len != SM2_DIGEST_LEN)
 		return -1;
-	if (BN_bn2binpad(bn_s, sig_s, sizeof(sig_s)) != sizeof(sig_s))
-		return -1;
-
-	r_copy = BN_dup(bn_r);
-	s_copy = BN_dup(bn_s);
-	if (r_copy == NULL || s_copy == NULL) {
-		BN_free(r_copy);
-		BN_free(s_copy);
-		ECDSA_SIG_free(sig);
-		return -1;
-	}
-
-	if (!ECDSA_SIG_set0(sig, r_copy, s_copy)) {
-		pr_err("set ec sig failed.");
-		BN_free(r_copy);
-		BN_free(s_copy);
-		ECDSA_SIG_free(sig);
-		return -1;
-	}
-
-	der_len = i2d_ECDSA_SIG(sig, &der);
-	if (der_len <= 0) {
-		OPENSSL_free(der);
-		ECDSA_SIG_free(sig);
-		return -1;
-	}
-
-	*siglen = der_len;
-	memcpy(sig_p, der, der_len);
-
-	OPENSSL_free(der);
-	ECDSA_SIG_free(sig);
 	return 0;
 }
 
@@ -171,54 +67,62 @@ int covert_sig_to_asn1(BIGNUM *bn_r, BIGNUM *bn_s, char *sig_p, size_t *siglen)
 int sm2_sign(const char *msg, size_t msg_len, const char *privkey_pem_path,
 	     unsigned char **sig, size_t *sig_len)
 {
+	unsigned char digest[SM2_DIGEST_LEN];
+	EVP_PKEY_CTX *pkey_ctx = NULL;
+	EVP_PKEY *pkey = NULL;
+	FILE *fp;
+	int ret;
+
 	if (!msg || !privkey_pem_path || !sig || !sig_len)
 		return -1;
 
-	FILE *fp = fopen(privkey_pem_path, "r");
-
+	fp = fopen(privkey_pem_path, "r");
 	if (!fp)
 		return -2;
 
-	EVP_PKEY *pkey = PEM_read_PrivateKey(fp, NULL, NULL, NULL);
-
+	pkey = PEM_read_PrivateKey(fp, NULL, NULL, NULL);
 	fclose(fp);
 	if (!pkey)
 		return -3;
 
-	EVP_MD_CTX *md_ctx = EVP_MD_CTX_new();
+	ret = sm2_msg_digest(msg, msg_len, digest);
+	if (ret)
+		goto cleanup;
 
-	if (!md_ctx) {
-		EVP_PKEY_free(pkey);
-		return -4;
+	pkey_ctx = EVP_PKEY_CTX_new(pkey, NULL);
+	if (!pkey_ctx) {
+		ret = -4;
+		goto cleanup;
 	}
 
-	int ret = -5;
-
-	if (EVP_DigestSignInit(md_ctx, NULL, EVP_sha256(), NULL, pkey) <= 0)
+	if (EVP_PKEY_sign_init(pkey_ctx) <= 0 ||
+	    EVP_PKEY_CTX_set_signature_md(pkey_ctx, EVP_sm3()) <= 0) {
+		ret = -5;
 		goto cleanup;
+	}
 
-	if (EVP_DigestSign(md_ctx, NULL, sig_len, (const unsigned char *)msg,
-			   msg_len) <= 0)
-		goto cleanup;
-
-	*sig = OPENSSL_malloc(*sig_len);
-	if (!*sig) {
+	if (EVP_PKEY_sign(pkey_ctx, NULL, sig_len, digest, SM2_DIGEST_LEN) <= 0) {
 		ret = -6;
 		goto cleanup;
 	}
 
-	if (EVP_DigestSign(md_ctx, *sig, sig_len, (const unsigned char *)msg,
-			   msg_len) <= 0) {
+	*sig = OPENSSL_malloc(*sig_len);
+	if (!*sig) {
+		ret = -7;
+		goto cleanup;
+	}
+
+	if (EVP_PKEY_sign(pkey_ctx, *sig, sig_len, digest, SM2_DIGEST_LEN) <= 0) {
 		OPENSSL_free(*sig);
 		*sig = NULL;
-		ret = -7;
+		ret = -8;
 		goto cleanup;
 	}
 
 	ret = 0;
 
 cleanup:
-	EVP_MD_CTX_free(md_ctx);
+	EVP_PKEY_CTX_free(pkey_ctx);
 	EVP_PKEY_free(pkey);
 	return ret;
 }
@@ -226,48 +130,51 @@ cleanup:
 int sm2_verify(const char *msg, size_t msg_len, const char *pubkey_pem_path,
 	       const unsigned char *sig, size_t sig_len)
 {
+	unsigned char digest[SM2_DIGEST_LEN];
+	EVP_PKEY_CTX *pkey_ctx = NULL;
+	EVP_PKEY *pkey = NULL;
+	FILE *fp;
+	int ret;
+
 	if (!msg || !pubkey_pem_path || !sig)
 		return -1;
 
-	FILE *fp = fopen(pubkey_pem_path, "r");
-
+	fp = fopen(pubkey_pem_path, "r");
 	if (!fp)
 		return -2;
 
-	EVP_PKEY *pkey = PEM_read_PUBKEY(fp, NULL, NULL, NULL);
-
+	pkey = PEM_read_PUBKEY(fp, NULL, NULL, NULL);
 	fclose(fp);
 	if (!pkey)
 		return -3;
 
-	EVP_MD_CTX *md_ctx = EVP_MD_CTX_new();
-
-	if (!md_ctx) {
-		EVP_PKEY_free(pkey);
-		return -4;
-	}
-
-	int ret = -5;
-
-	if (EVP_DigestVerifyInit(md_ctx, NULL, EVP_sha256(), NULL, pkey) <= 0)
+	ret = sm2_msg_digest(msg, msg_len, digest);
+	if (ret)
 		goto cleanup;
 
-	if (EVP_DigestVerify(md_ctx, sig, sig_len, (const unsigned char *)msg,
-			     msg_len) == 1)
+	pkey_ctx = EVP_PKEY_CTX_new(pkey, NULL);
+	if (!pkey_ctx) {
+		ret = -4;
+		goto cleanup;
+	}
+
+	if (EVP_PKEY_verify_init(pkey_ctx) <= 0 ||
+	    EVP_PKEY_CTX_set_signature_md(pkey_ctx, EVP_sm3()) <= 0) {
+		ret = -5;
+		goto cleanup;
+	}
+
+	if (EVP_PKEY_verify(pkey_ctx, sig, sig_len, digest, SM2_DIGEST_LEN) == 1)
 		ret = 0;
 	else
 		ret = -6;
 
 cleanup:
-	EVP_MD_CTX_free(md_ctx);
+	EVP_PKEY_CTX_free(pkey_ctx);
 	EVP_PKEY_free(pkey);
 	return ret;
 }
 
-/*
- * Verifies an SM2 signature using a built-in public key (OpenSSL 3.0+).
- * Returns 0 on success, negative value on error.
- */
 int sm2_verify_builtinkey(const char *msg, size_t msg_len, const char *sig,
 			  size_t sig_len)
 {
@@ -280,24 +187,22 @@ int sm2_verify_builtinkey(const char *msg, size_t msg_len, const char *sig,
 	if (!msg || !sig || sm2_public_key_len <= 0)
 		return -1;
 
-	ctx = EVP_PKEY_CTX_new_id(EVP_PKEY_EC, NULL);
+	ctx = EVP_PKEY_CTX_new_id(EVP_PKEY_SM2, NULL);
 	if (!ctx)
 		return -2;
 
-	params[0] = OSSL_PARAM_construct_utf8_string("group", (char *)"prime256v1", 0);
+	params[0] = OSSL_PARAM_construct_utf8_string("group", (char *)"SM2", 0);
 
 	params[1] = OSSL_PARAM_construct_octet_string(
 		"pub", (void *)sm2_public_key, sm2_public_key_len);
 
 	params[2] = OSSL_PARAM_construct_end();
 
-	// Initialize fromdata operation
 	if (EVP_PKEY_fromdata_init(ctx) <= 0) {
 		ret = -7;
 		goto cleanup;
 	}
 
-	// Generate public key from parameters
 	if (EVP_PKEY_fromdata(ctx, &pkey, EVP_PKEY_PUBLIC_KEY, params) <= 0) {
 		ret = -8;
 		goto cleanup;
@@ -308,30 +213,27 @@ int sm2_verify_builtinkey(const char *msg, size_t msg_len, const char *sig,
 		goto cleanup;
 	}
 
-	// Create message digest context
 	md_ctx = EVP_MD_CTX_new();
 	if (!md_ctx) {
 		ret = -4;
 		goto cleanup;
 	}
 
-	// Initialize verification with SM3 hash
-	if (EVP_DigestVerifyInit(md_ctx, NULL, EVP_sha256(), NULL, pkey) != 1) {
+	if (EVP_DigestVerifyInit(md_ctx, NULL, EVP_sm3(), NULL, pkey) != 1) {
 		ret = -9;
 		goto cleanup;
 	}
 
-	// Perform verification
 	int verify_ret = EVP_DigestVerify(md_ctx, (const unsigned char *)sig,
 					  sig_len, (const unsigned char *)msg,
 					  msg_len);
 
 	if (verify_ret == 1)
-		ret = 0; // Success
+		ret = 0;
 	else if (verify_ret == 0)
-		ret = -5; // Signature invalid
+		ret = -5;
 	else
-		ret = -6; // Verification error
+		ret = -6;
 
 cleanup:
 	if (md_ctx)
@@ -346,6 +248,10 @@ cleanup:
 	return ret;
 }
 
+/*
+ * Verifies an SM2 signature using a built-in public key (OpenSSL 3.0+).
+ * Returns 0 on success, negative value on error.
+ */
 bool is_tail_signed(char *input_file)
 {
 	FILE *file;
@@ -355,19 +261,21 @@ bool is_tail_signed(char *input_file)
 	file = fopen(input_file, "rb");
 	if (file == NULL) {
 		pr_err("Unable to open file %s", input_file);
-		exit(EXIT_FAILURE);
+		return false;
 	}
 
-	if (fseek(file, -sizeof(struct ctforged_sign_header), SEEK_END) != 0) {
-		pr_err("Unable to seek position");
+	/* a file smaller than the sign header cannot be tail-signed */
+	if (fseek(file, -(long)sizeof(struct ctforged_sign_header),
+		  SEEK_END) != 0) {
+		pr_err("Unable to seek position in %s", input_file);
 		fclose(file);
-		exit(EXIT_FAILURE);
+		return false;
 	}
 
 	if (fread(buffer, 1, 8, file) != 8) {
 		pr_err("read flag failed!");
 		fclose(file);
-		exit(EXIT_FAILURE);
+		return false;
 	}
 
 	if (memcmp(buffer, "CTFORGE", 7) == 0)
@@ -751,9 +659,24 @@ int do_verify_tail_sign(char *key_path, char *input_file)
 	}
 
 	size_t total_size = get_file_size(input_file);
+
+	if (total_size == (size_t)-1 ||
+	    total_size < sizeof(struct ctforged_sign_header)) {
+		pr_err("get file %s size failed!", input_file);
+		free(file_content);
+		return 1;
+	}
 	size_t file_size = total_size - sizeof(struct ctforged_sign_header);
 	struct ctforged_sign_header *head =
 		(struct ctforged_sign_header *)(file_content + file_size);
+
+	/* validate sign_len to prevent an out-of-bounds read */
+	if (head->sign_len == 0 || head->sign_len > sizeof(head->sign)) {
+		pr_err("invalid signature length %u in %s",
+		       head->sign_len, input_file);
+		free(file_content);
+		return 1;
+	}
 
 	int ret = sm2_verify((const char *)file_content, file_size, key_path,
 			     (const unsigned char *)head->sign, head->sign_len);
