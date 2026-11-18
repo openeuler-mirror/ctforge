@@ -1,8 +1,5 @@
 #include "ctforge.h"
 
-int new_socket;
-
-#define MAX_EVENTS 10
 #define MAX_CTFORGED_METHODS 64
 
 struct ctforge_config ctforged_config = { 0 };
@@ -10,9 +7,6 @@ struct ctforge_config ctforged_config = { 0 };
 uv_loop_t *ctforged_uv_loop;
 uv_tcp_t ctforged_tcp_server;
 uv_pipe_t ctforged_unix_server;
-
-struct ctforge_func *ctforge_ops_hashtable[CTFORGE_HASH_SIZE];
-pthread_mutex_t hashtable_lock = PTHREAD_MUTEX_INITIALIZER;
 
 static struct {
 	char *name;
@@ -23,40 +17,6 @@ static struct {
 static int ctforged_method_count;
 
 LIST_HEAD(module_list_head);
-
-unsigned int hash(char *str)
-{
-	unsigned int hash = 0;
-
-	while (*str)
-		hash = hash * 31 + *str++;
-
-	return hash % CTFORGE_HASH_SIZE;
-}
-
-void hashtable_insert_func(char *key, CTFORGE_FUNC function)
-{
-	unsigned int index = hash(key);
-	struct ctforge_func *newNode =
-		(struct ctforge_func *)calloc(1, sizeof(struct ctforge_func));
-	newNode->key = key;
-	newNode->function = function;
-	newNode->next = ctforge_ops_hashtable[index];
-	ctforge_ops_hashtable[index] = newNode;
-}
-
-struct ctforge_func *hashtable_find_func(char *key)
-{
-	unsigned int index = hash(key);
-	struct ctforge_func *node = ctforge_ops_hashtable[index];
-
-	while (node) {
-		if (strcmp(node->key, key) == 0)
-			return node;
-		node = node->next;
-	}
-	return NULL;
-}
 
 int check_ctforge_cmdline(void)
 {
@@ -103,21 +63,6 @@ int ctforged_init_signal(void)
 	signal(SIGINT, ctforged_sig_handler);
 	pr_info("Register SIGINT handled");
 	return 0;
-}
-
-void on_write_response(uv_write_t *req, int status)
-{
-	if (status < 0)
-		pr_err("Write response failed: %s", uv_err_name(status));
-
-	free(req->data);
-	free(req);
-}
-
-void on_close(uv_handle_t *handle)
-{
-	//free(handle);
-	pr_info("Close connection");
 }
 
 static void on_write_done(uv_write_t *req, int status)
@@ -281,6 +226,99 @@ int ops_lsmod(json_object *reqmsg, json_object **result, void *user_data)
 	return 0;
 }
 
+/*
+ * ops_show - list every payload module available in payload_dir,
+ * including whether it is currently loaded, the module name and
+ * its on-disk path.
+ */
+int ops_show(json_object *reqmsg, json_object **result, void *user_data)
+{
+	DIR *dir;
+	struct dirent *de;
+	json_object *result_array;
+	char module_name[NAME_MAX];
+	const char *payload_dir = ctforged_config.payload_dir;
+	const char *suffix = ".so.xz";
+	size_t suffix_len = strlen(suffix);
+	const char *prefix = "ctforge_";
+	size_t prefix_len = strlen(prefix);
+
+	(void)reqmsg;
+	(void)user_data;
+
+	if (!payload_dir)
+		payload_dir = "/usr/share/ctforge/payload";
+
+	dir = opendir(payload_dir);
+	if (!dir) {
+		json_object *err = json_object_new_object();
+		json_object_object_add(err, "code", json_object_new_int(-1));
+		json_object_object_add(err, "msg",
+				       json_object_new_string("cannot open payload directory"));
+		*result = err;
+		return -1;
+	}
+
+	result_array = json_object_new_array();
+	if (!result_array) {
+		closedir(dir);
+		*result = json_object_new_string("server alloc memory failed");
+		return -1;
+	}
+
+	while ((de = readdir(dir)) != NULL) {
+		const char *fname = de->d_name;
+		size_t len = strlen(fname);
+		char fullpath[PATH_MAX];
+		json_object *mod_obj;
+		int loaded;
+
+		/* match ctforge_<name>.so.xz */
+		if (len <= prefix_len + suffix_len)
+			continue;
+		if (strncmp(fname, prefix, prefix_len) != 0)
+			continue;
+		if (strcmp(fname + len - suffix_len, suffix) != 0)
+			continue;
+
+		snprintf(module_name, sizeof(module_name), "%.*s",
+			 (int)(len - prefix_len - suffix_len),
+			 fname + prefix_len);
+
+		snprintf(fullpath, sizeof(fullpath), "%s/%s",
+			 payload_dir, fname);
+
+		loaded = (find_module(module_name) != NULL);
+
+		mod_obj = json_object_new_object();
+		if (!mod_obj)
+			continue;
+
+		json_object_object_add(mod_obj, "name",
+				       json_object_new_string(module_name));
+		json_object_object_add(mod_obj, "path",
+				       json_object_new_string(fullpath));
+		json_object_object_add(mod_obj, "loaded",
+				       json_object_new_boolean(loaded));
+
+		json_object_array_add(result_array, mod_obj);
+	}
+	closedir(dir);
+
+	if (json_object_array_length(result_array) == 0) {
+		json_object_put(result_array);
+		json_object *err = json_object_new_object();
+		json_object_object_add(err, "code", json_object_new_int(-1));
+		json_object_object_add(err, "msg",
+				       json_object_new_string("no module available"));
+		*result = err;
+		return 0;
+	}
+
+	*result = result_array;
+	return 0;
+}
+
 int ops_rmmod(json_object *reqmsg, json_object **result, void *user_data)
 {
 	json_object *msg_obj;
@@ -345,106 +383,167 @@ int ops_rmmod(json_object *reqmsg, json_object **result, void *user_data)
 
 int ops_mod(json_object *reqmsg, json_object **result, void *user_data)
 {
-	char *sym_name = NULL;
-	json_object *err_ret = NULL;
-	struct module_info *mi;
+	json_object *msg_obj;
+	const char *params;
+	int ret;
+
+	(void)user_data;
+
+	if (!json_object_object_get_ex(reqmsg, "params", &msg_obj)) {
+		*result = json_object_new_object();
+		if (*result) {
+			json_object_object_add(
+				*result, "code",
+				json_object_new_int(-1));
+			json_object_object_add(
+				*result, "msg",
+				json_object_new_string(
+					"Invalid parameter"));
+		}
+		return (*result) ? 0 : -1;
+	}
+
+	params = json_object_get_string(msg_obj);
+
+	/* shared dispatch path (also used by TTL expiry), holding
+	 * module_op_lock from module lookup through the so call
+	 */
+	ret = payload_module_dispatch(params, result);
+
+	return (ret == 0 && *result) ? 0 : -1;
+}
+
+/*
+ * ops_ttl - time-limited rules with automatic revert.
+ *
+ * params forms (space separated):
+ *   "apply SECONDS <module cmd> -- <revert cmd>"
+ *       runs <module cmd> now (e.g. "banopen update --global /f 1"),
+ *       then replays <revert cmd> when SECONDS elapse
+ *   "cancel ID"   drop the timer, the rule stays as-is
+ *   "list"        show pending ttl rules
+ */
+static json_object *ttl_err_json(const char *msg)
+{
+	json_object *res = json_object_new_object();
+
+	if (!res)
+		return NULL;
+	json_object_object_add(res, "code", json_object_new_int(-1));
+	json_object_object_add(res, "msg", json_object_new_string(msg));
+	return res;
+}
+
+int ops_ttl(json_object *reqmsg, json_object **result, void *user_data)
+{
 	json_object *msg_obj;
 	const char *params;
 	char *params_copy = NULL;
-	int argc = 0;
-	char **argv = NULL;
 	char *token, *save_ptr;
-	char *module_name;
-	so_func_t so_func;
-	char msg[128];
+	char *apply_cmd = NULL;
+	char *revert_cmd = NULL;
+	char *p;
+	int seconds = 0;
+	int seen_sep = 0;
+	int ret = -1;
 
+	(void)user_data;
 	*result = NULL;
 
-	if (!json_object_object_get_ex(reqmsg, "params", &msg_obj))
-		goto invalid_param;
+	if (!json_object_object_get_ex(reqmsg, "params", &msg_obj)) {
+		*result = ttl_err_json("Invalid parameter");
+		goto out;
+	}
 
 	params = json_object_get_string(msg_obj);
-	if (!params)
-		goto invalid_param;
+	if (!params) {
+		*result = ttl_err_json("empty input");
+		goto out;
+	}
 
 	params_copy = strdup(params);
-	if (!params_copy)
-		goto oom;
-
-	argv = calloc(10, sizeof(char *));
-	if (!argv)
-		goto oom;
+	if (!params_copy) {
+		*result = ttl_err_json("out of memory");
+		goto out;
+	}
 
 	token = strtok_r(params_copy, " ", &save_ptr);
-	while (token != NULL && argc < 10) {
-		argv[argc] = token;
-		argc++;
-		token = strtok_r(NULL, " ", &save_ptr);
+	if (!token) {
+		*result = ttl_err_json("Invalid parameter");
+		goto out;
 	}
 
-	if (argc < 1 || argc > 10)
-		goto invalid_param;
-
-	module_name = argv[0];
-	if (module_name == NULL)
-		goto invalid_param;
-	pr_info("try find module %s", module_name);
-	mi = find_module(module_name);
-	if (mi == NULL) {
-		err_ret = json_object_new_object();
-		json_object_object_add(err_ret, "code",
-				       json_object_new_int(-1));
-		snprintf(msg, sizeof(msg), "module '%s' not found!",
-			 module_name);
-		json_object_object_add(err_ret, "msg",
-				       json_object_new_string(msg));
-		*result = err_ret;
-		goto cleanup;
+	if (strcmp(token, "list") == 0) {
+		ret = ttl_list(result);
+		goto out;
 	}
 
-	sym_name = (argc == 1) ? "help" : argv[1];
+	if (strcmp(token, "cancel") == 0) {
+		char *id_str = strtok_r(NULL, " ", &save_ptr);
 
-	so_func = mod_find_sym(mi, module_name, sym_name);
-	if (!so_func) {
-		err_ret = json_object_new_object();
-		json_object_object_add(err_ret, "code",
-				       json_object_new_int(-1));
-		snprintf(msg, sizeof(msg), "mod '%s' symbol '%s' not found",
-			 module_name, sym_name);
-		json_object_object_add(err_ret, "msg",
-				       json_object_new_string(msg));
-		*result = err_ret;
-		goto cleanup;
+		if (!id_str || strtok_r(NULL, " ", &save_ptr)) {
+			*result = ttl_err_json("usage: ttl cancel ID");
+			goto out;
+		}
+		ret = ttl_cancel(atoi(id_str), result);
+		goto out;
 	}
 
-	*result = so_func(argc, argv);
-	if (*result == NULL) {
-		err_ret = json_object_new_object();
-		json_object_object_add(err_ret, "code",
-				       json_object_new_int(-1));
-		json_object_object_add(
-			err_ret, "msg",
-			json_object_new_string("Internal error"));
-		*result = err_ret;
+	if (strcmp(token, "apply") != 0) {
+		*result = ttl_err_json("unknown ttl subcommand");
+		goto out;
 	}
 
-	goto cleanup;
+	token = strtok_r(NULL, " ", &save_ptr);
+	if (!token) {
+		*result = ttl_err_json("usage: ttl apply SECONDS "
+				       "<module cmd> -- <revert cmd>");
+		goto out;
+	}
+	seconds = atoi(token);
+	if (seconds <= 0) {
+		*result = ttl_err_json("ttl seconds must be positive");
+		goto out;
+	}
 
-invalid_param:
-	err_ret = json_object_new_object();
-	json_object_object_add(err_ret, "code", json_object_new_int(-1));
-	json_object_object_add(err_ret, "msg",
-			       json_object_new_string("Invalid parameter"));
-	*result = err_ret;
-	goto cleanup;
+	/* collect apply tokens until "--", then the revert tokens */
+	apply_cmd = calloc(1, TTL_CMD_MAX);
+	revert_cmd = calloc(1, TTL_CMD_MAX);
+	if (!apply_cmd || !revert_cmd) {
+		*result = ttl_err_json("out of memory");
+		goto out;
+	}
 
-oom:
-	goto cleanup;
+	while ((token = strtok_r(NULL, " ", &save_ptr)) != NULL) {
+		if (strcmp(token, "--") == 0) {
+			seen_sep = 1;
+			continue;
+		}
+		p = seen_sep ? revert_cmd : apply_cmd;
+		if (strlen(p) + strlen(token) + 2 > TTL_CMD_MAX) {
+			*result = ttl_err_json("ttl command too long");
+			goto out;
+		}
+		if (p[0])
+			strcat(p, " ");
+		strcat(p, token);
+	}
 
-cleanup:
+	if (apply_cmd[0] == '\0' || revert_cmd[0] == '\0') {
+		*result = ttl_err_json("usage: ttl apply SECONDS "
+				       "<module cmd> -- <revert cmd>");
+		goto out;
+	}
+
+	pr_info("ttl: apply %ds [%s] revert [%s]", seconds, apply_cmd,
+		revert_cmd);
+	ret = ttl_apply(apply_cmd, revert_cmd, seconds, result);
+
+out:
 	free(params_copy);
-	free(argv);
-	return (*result) ? 0 : -1;
+	free(apply_cmd);
+	free(revert_cmd);
+	return (ret == 0 && *result) ? 0 : -1;
 }
 
 int ops_status(json_object *reqmsg, json_object **result, void *user_data)
@@ -462,6 +561,11 @@ int ops_status(json_object *reqmsg, json_object **result, void *user_data)
 
 	*result = res_obj;
 	return 0;
+}
+
+int ops_events(json_object *reqmsg, json_object **result, void *user_data)
+{
+	return collector_status(result);
 }
 
 int jsonrpc_register(const char *method_name, jsonrpc_method_fn fn,
@@ -515,15 +619,28 @@ int main(void)
 	pr_info("Enable workpool");
 	ret = threadpoll_init();
 	if (ret != 0) {
-		pr_err("Failed to set signal handle ret=[%d]\n", ret);
+		pr_err("Failed to init workpool ret=[%d]\n", ret);
 		return 1;
 	}
 
+	pr_info("Enable event collector");
+	ret = collector_start();
+	if (ret != 0)
+		pr_err("collector start failed (non-fatal) ret=[%d]", ret);
+
+	pr_info("Enable ttl thread");
+	ret = ttl_start();
+	if (ret != 0)
+		pr_err("ttl start failed (non-fatal) ret=[%d]", ret);
+	register_cleanup(ttl_stop, "ttl_stop");
+
 	pr_info("Workpool add payload_init");
-	threadpool_add(workpool, (void (*)(void *))payload_init, NULL);
+	if (threadpool_add(workpool, (void (*)(void *))payload_init, NULL))
+		pr_err("Failed to queue payload_init task");
 
 	pr_info("Workpool add netlink_loop");
-	threadpool_add(workpool, (void (*)(void *))netlink_loop, NULL);
+	if (threadpool_add(workpool, (void (*)(void *))netlink_loop, NULL))
+		pr_err("Failed to queue netlink_loop task");
 
 	pr_info("Register ops method");
 	ctforged_method_count = 0;
@@ -532,6 +649,9 @@ int main(void)
 	jsonrpc_register("rmmod", ops_rmmod, NULL);
 	jsonrpc_register("mod", ops_mod, NULL);
 	jsonrpc_register("status", ops_status, NULL);
+	jsonrpc_register("events", ops_events, NULL);
+	jsonrpc_register("ttl", ops_ttl, NULL);
+	jsonrpc_register("show", ops_show, NULL);
 
 	pr_info("Starting server");
 	start_uv_server(&ctforged_config);

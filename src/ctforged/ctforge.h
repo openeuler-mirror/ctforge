@@ -23,7 +23,9 @@
 #include <dlfcn.h>
 #include <fcntl.h>
 #include <getopt.h>
+#include <grp.h>
 #include <pthread.h>
+#include <pwd.h>
 #include <signal.h>
 #include <sys/file.h>
 #include <sys/stat.h>
@@ -68,6 +70,11 @@
 
 #include <bpf/libbpf.h>
 
+/* The vendored libbpf is patched to verify per-program signatures
+ * through the daemon-provided sm2_verify_builtinkey() and the
+ * sm2_public_key data below. This include is a runtime dependency,
+ * not dead code.
+ */
 #include "../key/CTFORGED/sm2_signature.h"
 
 #define CONFIG_PATH "/etc/ctforge/ctforge.cfg"
@@ -77,6 +84,12 @@
 #define MATCH(s, n) (strcmp(section, s) == 0 && strcmp(name, n) == 0)
 #define RESP_LEN_MAX 2048
 #define CMD_LEN_MAX 192
+
+/* Max entries for the "control_uids" SO_PEERCRED whitelist */
+#define CTFORGE_MAX_CONTROL_UIDS 32
+
+/* Max length of a TTL rule command string (apply or revert) */
+#define TTL_CMD_MAX 256
 
 #define USER_DEFAULT -1
 #define USER_EMERG 0
@@ -105,6 +118,14 @@
 
 #define xstr(s) str(s)
 #define str(s) #s
+
+/* kernel-style printf-format attribute shorthand, not provided
+ * by userspace headers (mirrors the kernel's compiler-attributes)
+ */
+#ifndef __printf
+#define __printf(a, b)	__attribute__\
+((format(printf, a, b)))
+#endif
 
 #define CTFORGE_VERSION_MAJOR 0
 #define CTFORGE_VERSION_MINOR 1
@@ -135,8 +156,6 @@
 #define READ_SIZE 1024
 #define PORT 8080
 #define BUFFER_SIZE 1024
-
-#define CTFORGE_HASH_SIZE 512
 
 #define CTSECFS_SM3_SIG_SIZE 128
 #define SM2_DEFAULT_USERID "1234567812345678"
@@ -252,21 +271,6 @@ struct ebpf_log {
 	char msg[256];
 };
 
-struct ctforge_reply_t {
-	struct ctforged_params cp;
-	union {
-		struct ctforge_status_t ctforge_status;
-		struct ctforge_kfifo_t ctforge_kfifo;
-		struct hash_type_t hash_type;
-		char audit_info[128];
-	};
-};
-
-struct ctforge_nl_reply {
-	__u32 portid;
-	struct sk_buff *skb;
-};
-
 typedef void (*task_func)(void *);
 
 struct ctforge_task {
@@ -299,23 +303,18 @@ struct ctforge_elf_sec {
 	size_t size;
 };
 
-struct ctforge_func;
-
-typedef int (*CTFORGE_FUNC)(struct ctforged_params *s);
-
-struct ctforge_func {
-	char *key;
-	CTFORGE_FUNC function;
-	struct ctforge_func *next;
-	size_t call_count;
-};
-
 struct ctforge_config {
 	char *listen;
 	char *payload_dir;
 	char *log_dir;
 	char *private_key;
 	char *public_key;
+	/* Uids allowed on the control plane; the peer's real uid is
+	 * obtained via SO_PEERCRED (unix socket only). Root (uid 0) is
+	 * always allowed, regardless of this list.
+	 */
+	uid_t control_uids[CTFORGE_MAX_CONTROL_UIDS];
+	int control_uid_count;
 };
 
 struct ctforge_conn_ctx {
@@ -340,13 +339,6 @@ typedef int (*jsonrpc_method_fn)(json_object *params, json_object **result,
 
 int jsonrpc_register(const char *method_name, jsonrpc_method_fn fn,
 		     void *user_data);
-
-int jsonrpc_server_run_tcp(const char *host, int port);
-
-int jsonrpc_server_run_unix(const char *socket_path);
-
-void jsonrpc_handle_request(uv_stream_t *stream, const char *request_json,
-			    char **response_json);
 
 struct cleanup_task {
 	void (*fn)(void);
@@ -376,7 +368,7 @@ int register_cleanup(void (*fn)(void), const char *name);
 void shutdown_cleanup(void);
 
 /* Logging */
-void printu(int level, char *fmt, ...);
+void printu(int level, char *fmt, ...) __printf(2, 3);
 void ctforged_klog_to_file(char *info);
 void ctforged_slog_to_file(char *info);
 int ctforged_log_init(void);
@@ -388,19 +380,15 @@ void delete_module(struct module_info *mod);
 void modify_module(struct module_info *mod, const char *name, const char *path);
 int payload_init(void);
 
+/* Event Collector */
+int collector_start(void);
+void collector_stop(void);
+int collector_register(const char *module_name, int logmap_fd);
+void collector_unregister(const char *module_name);
+int collector_status(json_object **result);
+
 /* Netlink & Command Ops */
 void netlink_loop(void);
-void ctforge_nl_ctl(struct ctforged_params *s);
-
-int ctforge_ops_insmod(struct ctforged_params *s);
-int ctforge_ops_rmmod(struct ctforged_params *s);
-int ctforge_ops_lsmod(struct ctforged_params *s);
-int ctforge_ops_modinfo(struct ctforged_params *s);
-int ctforge_ops_sign(struct ctforged_params *s);
-int ctforge_ops_verify(struct ctforged_params *s);
-int ctforge_ops_exit(struct ctforged_params *s);
-int ctforge_ops_status(struct ctforged_params *s);
-int ctforge_ops_print(struct ctforged_params *s);
 
 /* Thread Pool */
 struct ctforge_threadpool *threadpool_create(int thread_count, int queue_size);
@@ -412,12 +400,7 @@ void *threadpool_thread(void *threadpool);
 int threadpoll_init(void);
 
 /* Signature (conditional) */
-int sign_data_raw(unsigned char *priv_key, void *data, int datalen, char *sig,
-		  size_t *siglen);
-int verify_data_raw(unsigned char *pub_key, void *data, size_t datalen,
-		    char *sig, size_t siglen);
 unsigned char *load_file(char *filename, size_t *len);
-void dump_bin2str(char *prefix, unsigned char *bin, int len);
 int do_verify_ebpf_section_sign(char *key_path, char *input_file);
 int do_verify_tail_sign(char *key_path, char *input_file);
 int do_safty_verify_sign(char *key_path, char *input_file);
@@ -435,8 +418,6 @@ int create_section(const char *input_filename, const char *section_name,
 
 /* Utilities */
 int update_rlimit(void);
-int sk_resappend(struct ctforged_params *s, const char *format, ...);
-int strnappend(char *str, size_t size, const char *format, ...);
 bool is_ebpf_file(const char *filename);
 bool is_elf_file(const char *filename);
 void hexdump(const void *data, size_t size);
@@ -447,30 +428,30 @@ bool starts_with(const char *str, const char *substr);
 int list_empty_careful(const struct list_head *head);
 int gen_timestamp(void);
 ssize_t strscpy(char *dest, const char *src, size_t count);
+int ctforge_attach_tracepoint(int prog_fd, const char *tp_category,
+			      const char *tp_name);
 
 /* Main Runtime */
-unsigned int hash(char *str);
-void hashtable_insert_func(char *key, CTFORGE_FUNC function);
-struct ctforge_func *hashtable_find_func(char *key);
 void do_exit_clean(void);
-void sig_handler(int sig);
-void beautify_json(struct json_object *obj);
 
 /* payload */
 int do_one_rmmod(char *mod_name);
 int do_one_insmod(char *mod_name);
-so_func_t module_find_symbol_c(struct module_info *mi, char *module_name,
-			       char *sym_name);
 void *mod_find_sym(struct module_info *mi, char *module_name, char *sym_name);
+int payload_module_dispatch(const char *params, json_object **result);
+
+/* TTL rules (time-limited rules with automatic revert) */
+int ttl_start(void);
+void ttl_stop(void);
+int ttl_apply(const char *apply_cmd, const char *revert_cmd, int seconds,
+	      json_object **result);
+int ttl_cancel(int id, json_object **result);
+int ttl_list(json_object **result);
 
 /* server */
 int start_uv_server(struct ctforge_config *ctforged_config);
 jsonrpc_method_fn find_method(const char *name, void **user_data);
 void ctforged_clean_sock(void);
-
-/* error */
-const char *ct_strerror(int err);
-const char *ct_strerror_r(int err, char *buf, size_t buflen);
 
 int sm2_sign(const char *msg, size_t msg_len, const char *privkey_pem_path,
 	     unsigned char **sig, size_t *sig_len);
@@ -485,66 +466,5 @@ int do_verify_sign(char *key_path, char *input_file);
 int do_remove_section(const char *input_filename, const char *section_name);
 int do_remove_ebpf_section_sign(char *input_file);
 int do_remove_sign(char *input_file);
-
-#define CT_E2BIG -1
-#define CT_EACCES -2
-#define CT_EADDRINUSE -3
-#define CT_EADDRNOTAVAIL -4
-#define CT_EAFNOSUPPORT -5
-#define CT_EAGAIN -6
-#define CT_EALREADY -7
-#define CT_EBADF -8
-#define CT_EBUSY -9
-#define CT_ECANCELED -10
-#define CT_ECHARSET -11
-#define CT_ECONNABORTED -12
-#define CT_ECONNREFUSED -13
-#define CT_ECONNRESET -14
-#define CT_EDESTADDRREQ -15
-#define CT_EEXIST -16
-#define CT_EFAULT -17
-#define CT_EFBIG -18
-#define CT_EHOSTUNREACH -19
-#define CT_EINTR -20
-#define CT_EINVAL -21
-#define CT_EIO -22
-#define CT_EISCONN -23
-#define CT_EISDIR -24
-#define CT_ELOOP -25
-#define CT_EMFILE -26
-#define CT_EMSGSIZE -27
-#define CT_ENAMETOOLONG -28
-#define CT_ENETDOWN -29
-#define CT_ENETUNREACH -30
-#define CT_ENFILE -31
-#define CT_ENOBUFS -32
-#define CT_ENODEV -33
-#define CT_ENOENT -34
-#define CT_ENOMEM -35
-#define CT_ENONET -36
-#define CT_ENOPROTOOPT -37
-#define CT_ENOSPC -38
-#define CT_ENOSYS -39
-#define CT_ENOTCONN -40
-#define CT_ENOTDIR -41
-#define CT_ENOTEMPTY -42
-#define CT_ENOTSOCK -43
-#define CT_ENOTSUP -44
-#define CT_EPERM -45
-#define CT_EPIPE -46
-#define CT_EPROTO -47
-#define CT_EPROTONOSUPPORT -48
-#define CT_EPROTOTYPE -49
-#define CT_ERANGE -50
-#define CT_EROFS -51
-#define CT_ESHUTDOWN -52
-#define CT_ESPIPE -53
-#define CT_ESRCH -54
-#define CT_ETIMEDOUT -55
-#define CT_ETXTBSY -56
-#define CT_EXDEV -57
-#define CT_UNKNOWN -58
-
-#define CT_ERRNO_MAX 59
 
 #endif /* _CTFORGE_H */
