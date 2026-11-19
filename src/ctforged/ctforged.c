@@ -48,34 +48,46 @@ void do_exit_clean(void)
 	exit(0);
 }
 
-void ctforged_sig_handler(int sig)
-{
-	pr_debug("Received signal [%d]", sig);
+/*
+ * Shutdown runs through libuv's signal handling: the callback fires
+ * in event-loop context, between request callbacks, not inside the
+ * signal delivery itself. A SIGTERM arriving while a blocking module
+ * operation (insmod holds module_op_lock) is running on this thread
+ * is deferred until that operation finishes, so the cleanup path can
+ * never deadlock on a lock held by the interrupted thread, and every
+ * cleanup step (mutexes, joins, unlink, buffered stdio) runs in a
+ * normal, async-signal-safe-free context.
+ */
+static uv_signal_t sigterm_watcher;
+static uv_signal_t sigint_watcher;
 
-	if (sig == SIGTERM || sig == SIGINT)
-		do_exit_clean();
+static void on_shutdown_signal(uv_signal_t *handle, int signum)
+{
+	pr_info("Received signal [%d], shutting down", signum);
+	(void)handle;
+	do_exit_clean();
 }
 
 int ctforged_init_signal(void)
 {
-	struct sigaction sa;
-
-	memset(&sa, 0, sizeof(sa));
-	sa.sa_handler = ctforged_sig_handler;
-	sigemptyset(&sa.sa_mask);
-	/* Restart interrupted syscalls so libuv's loop is not disturbed
-	 * by EINTR storms from unrelated signals.
-	 */
-	sa.sa_flags = SA_RESTART;
-
-	if (sigaction(SIGTERM, &sa, NULL) != 0) {
-		pr_err("sigaction(SIGTERM) failed: %s", strerror(errno));
+	if (uv_signal_init(ctforged_uv_loop, &sigterm_watcher) != 0) {
+		pr_err("uv_signal_init(SIGTERM) failed");
+		return -1;
+	}
+	if (uv_signal_start(&sigterm_watcher, on_shutdown_signal,
+			    SIGTERM) != 0) {
+		pr_err("uv_signal_start(SIGTERM) failed");
 		return -1;
 	}
 	pr_info("Register SIGTERM handled");
 
-	if (sigaction(SIGINT, &sa, NULL) != 0) {
-		pr_err("sigaction(SIGINT) failed: %s", strerror(errno));
+	if (uv_signal_init(ctforged_uv_loop, &sigint_watcher) != 0) {
+		pr_err("uv_signal_init(SIGINT) failed");
+		return -1;
+	}
+	if (uv_signal_start(&sigint_watcher, on_shutdown_signal,
+			    SIGINT) != 0) {
+		pr_err("uv_signal_start(SIGINT) failed");
 		return -1;
 	}
 	pr_info("Register SIGINT handled");
