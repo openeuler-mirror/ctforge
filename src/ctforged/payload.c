@@ -147,6 +147,68 @@ struct module_info *find_module(const char *name)
 	return NULL;
 }
 
+/*
+ * payload_module_list_json - build the loaded-module list for lsmod.
+ * @result: receives a JSON reply (always set on return)
+ *
+ * The list is iterated under module_list_lock: the restore path runs
+ * on a workpool thread and mutates the list (list_add/list_del write
+ * two pointers non-atomically), so an unlocked reader could walk a
+ * half-linked node and crash. Building the JSON under the lock keeps
+ * the snapshot consistent.
+ *
+ * Returns 0 when a reply object was produced, -1 on allocation
+ * failure.
+ */
+int payload_module_list_json(json_object **result)
+{
+	struct module_info *iter;
+	json_object *result_array;
+	json_object *res;
+
+	*result = NULL;
+
+	result_array = json_object_new_array();
+	res = json_object_new_object();
+	if (!result_array || !res) {
+		if (result_array)
+			json_object_put(result_array);
+		if (res)
+			json_object_put(res);
+		return -1;
+	}
+
+	pthread_mutex_lock(&module_list_lock);
+	if (list_empty(&module_list_head)) {
+		pthread_mutex_unlock(&module_list_lock);
+		json_object_put(result_array);
+		json_object_object_add(
+			res, "msg",
+			json_object_new_string("no module insmod!"));
+		*result = res;
+		return 0;
+	}
+
+	list_for_each_entry(iter, &module_list_head, list) {
+		json_object *mod_obj = json_object_new_object();
+
+		if (!mod_obj)
+			break;
+		json_object_object_add(
+			mod_obj, "name",
+			json_object_new_string(iter->module_name));
+		json_object_object_add(
+			mod_obj, "path",
+			json_object_new_string(iter->payload_fullpath));
+		json_object_array_add(result_array, mod_obj);
+	}
+	pthread_mutex_unlock(&module_list_lock);
+
+	*result = result_array;
+	json_object_put(res);
+	return 0;
+}
+
 so_func_t module_find_symbol(struct module_info *mi, char *module_name,
 			     char *sym_name)
 {
