@@ -11,7 +11,7 @@ BPFTOOL      := /tmp/bpftool
 BPFTOOLTGZ   := ../tools/$(ARCH)/bpftool.tar.gz
 PHONY        := default
 CC           := clang
-CFLAGS       := -g -O0 -Wno-deprecated-declarations -I. $(EXTRA_FLAGS)
+CFLAGS       := -g -O2 -Wno-deprecated-declarations -I. $(EXTRA_FLAGS)
 LDFLAGS      := -lelf -lz -lpthread -ldl -lssl -lcrypto -llzma -luv -ljson-c
 SRCS         := ctforgectl.c ctforge-signer.c ctforged.c config.c \
                 pool.c log.c tools.c payload.c netlink.c signature.c \
