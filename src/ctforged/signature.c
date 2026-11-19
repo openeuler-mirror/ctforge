@@ -762,6 +762,108 @@ int do_safty_verify_sign(char *public_key_path, char *input_file)
 		return tail_ret;
 }
 
+/*
+ * Verify the tail signature of @input_file against the built-in
+ * public key compiled into the daemon (sm2_verify_builtinkey).
+ *
+ * The load-time gate (payload.c) uses this variant so that every
+ * verification layer -- tail sign, loader blob, per-program -- shares
+ * the single compiled-in trust anchor. A .so payload is a native ELF
+ * object; a raw eBPF object (e_machine 0xf7) is not dlopen-able and
+ * is rejected here outright.
+ *
+ * Returns 0 on success, 1 on failure.
+ */
+int do_verify_tail_sign_builtin(char *input_file)
+{
+	if (!input_file)
+		return 1;
+
+	if (!is_tail_signed(input_file)) {
+		pr_err("File %s does not have tail signed!", input_file);
+		return 1;
+	}
+
+	unsigned char *file_content = load_file(input_file, NULL);
+
+	if (!file_content) {
+		pr_err("read file %s failed!", input_file);
+		return 1;
+	}
+
+	size_t total_size = get_file_size(input_file);
+
+	if (total_size == (size_t)-1 ||
+	    total_size < sizeof(struct ctforged_sign_header)) {
+		pr_err("get file %s size failed!", input_file);
+		free(file_content);
+		return 1;
+	}
+
+	FILE *file = fopen(input_file, "rb");
+
+	if (!file) {
+		pr_err("Unable to open file %s", input_file);
+		free(file_content);
+		return 1;
+	}
+
+	unsigned char elf_magic[4];
+
+	if (fread(elf_magic, 1, 4, file) != 4) {
+		pr_err("File %s fread failed", input_file);
+		fclose(file);
+		free(file_content);
+		return 1;
+	}
+	fclose(file);
+
+	if (!(elf_magic[0] == 0x7f && elf_magic[1] == 'E' &&
+	      elf_magic[2] == 'L' && elf_magic[3] == 'F')) {
+		pr_err("File %s is not valid elf file!", input_file);
+		free(file_content);
+		return 1;
+	}
+
+	uint16_t magic = 0;
+
+	if (total_size >= 20)
+		memcpy(&magic, (const char *)file_content + 18, sizeof(magic));
+
+	if (magic == 0xf7) {
+		pr_err("File %s is a raw eBPF object, not a loadable payload",
+		       input_file);
+		free(file_content);
+		return 1;
+	}
+
+	size_t file_size = total_size - sizeof(struct ctforged_sign_header);
+	struct ctforged_sign_header *head =
+		(struct ctforged_sign_header *)(file_content + file_size);
+
+	/* validate sign_len to prevent an out-of-bounds read */
+	if (head->sign_len == 0 || head->sign_len > sizeof(head->sign)) {
+		pr_err("invalid signature length %u in %s",
+		       head->sign_len, input_file);
+		free(file_content);
+		return 1;
+	}
+
+	int ret = sm2_verify_builtinkey((const char *)file_content, file_size,
+					(const char *)head->sign,
+					head->sign_len);
+
+	free(file_content);
+
+	if (ret != 0) {
+		pr_err("verify %s tail sign failed! error: %d", input_file,
+		       ret);
+		return 1;
+	}
+	pr_info("verify %s tail sign success!", input_file);
+	return 0;
+}
+
 // Verify SM2 signatures of eBPF sections from an in-memory ELF buffer.
 // For every non-dot-prefixed section (e.g., "my_prog"), expect a corresponding
 // "SIGN_my_prog" section containing its signature.
