@@ -49,7 +49,13 @@ int payload_init(void)
 	return 0;
 }
 
-static void modules_list_save_locked(void)
+/* Persist the loaded-module list so a daemon restart can restore it.
+ *
+ * Callers must hold module_op_lock: it serialises the whole module list
+ * (add/delete also take module_list_lock internally, but taking it here
+ * would be needed only if this were callable without module_op_lock).
+ */
+static void modules_list_save(void)
 {
 	struct module_info *iter;
 	char tmp[PATH_MAX];
@@ -297,7 +303,7 @@ fail:
 	return -1;
 }
 
-static int do_one_insmod_locked(char *module_name)
+static int do_one_insmod_impl(char *module_name)
 {
 	int ret;
 	struct module_info *tmp = NULL;
@@ -463,7 +469,7 @@ static int do_one_insmod_locked(char *module_name)
 	}
 	pr_debug("load module %s success!", module_name);
 
-	modules_list_save_locked();
+	modules_list_save();
 
 	/* Keep the memfd open for the module's whole lifetime.
 	 * dlopen() caches loaded objects by path string: if this fd
@@ -486,7 +492,7 @@ err_free:
 	return 1;
 }
 
-static int do_one_rmmod_locked(char *module_name)
+static int do_one_rmmod_impl(char *module_name)
 {
 	int ret;
 	json_object *result;
@@ -542,7 +548,7 @@ static int do_one_rmmod_locked(char *module_name)
 	delete_module(s->modinfo);
 	pr_dbg("clean module memory %s", module_name);
 
-	modules_list_save_locked();
+	modules_list_save();
 
 	/* stop continuous event collection for this module */
 	collector_unregister(module_name);
@@ -558,7 +564,7 @@ int do_one_insmod(char *module_name)
 	int ret;
 
 	pthread_mutex_lock(&module_op_lock);
-	ret = do_one_insmod_locked(module_name);
+	ret = do_one_insmod_impl(module_name);
 	pthread_mutex_unlock(&module_op_lock);
 	return ret;
 }
@@ -568,7 +574,7 @@ int do_one_rmmod(char *module_name)
 	int ret;
 
 	pthread_mutex_lock(&module_op_lock);
-	ret = do_one_rmmod_locked(module_name);
+	ret = do_one_rmmod_impl(module_name);
 	pthread_mutex_unlock(&module_op_lock);
 	return ret;
 }
