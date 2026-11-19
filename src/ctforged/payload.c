@@ -355,15 +355,13 @@ static int do_one_insmod_impl(char *module_name)
 		goto err_free;
 	}
 
-	/* honor the configured public key path, fall back to the
-	 * compiled-in default
+	/* Verify the tail signature against the built-in trust anchor
+	 * (the public key compiled into the daemon), the same anchor
+	 * the loader-blob and per-program checks use. The configured
+	 * public_key file is not part of the load gate: a missing or
+	 * mismatched key file must not break or redirect verification.
 	 */
-	char *pubkey = ctforged_config.public_key;
-
-	if (!pubkey)
-		pubkey = (char *)PUBLICKEY_PATH;
-
-	ret = do_safty_verify_sign(pubkey, mi->payload_memfd_path);
+	ret = do_verify_tail_sign_builtin(mi->payload_memfd_path);
 	if (ret) {
 		pr_err("Signature check failed!");
 		goto err_free;
