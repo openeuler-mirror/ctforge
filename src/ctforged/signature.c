@@ -178,17 +178,18 @@ cleanup:
 int sm2_verify_builtinkey(const char *msg, size_t msg_len, const char *sig,
 			  size_t sig_len)
 {
+	unsigned char digest[SM2_DIGEST_LEN];
 	EVP_PKEY *pkey = NULL;
 	int ret = -3;
-	EVP_MD_CTX *md_ctx = NULL;
-	EVP_PKEY_CTX *ctx = NULL;
+	EVP_PKEY_CTX *verify_ctx = NULL;
+	EVP_PKEY_CTX *fromdata_ctx = NULL;
 	OSSL_PARAM params[3];
 
 	if (!msg || !sig || sm2_public_key_len <= 0)
 		return -1;
 
-	ctx = EVP_PKEY_CTX_new_id(EVP_PKEY_SM2, NULL);
-	if (!ctx)
+	fromdata_ctx = EVP_PKEY_CTX_new_id(EVP_PKEY_SM2, NULL);
+	if (!fromdata_ctx)
 		return -2;
 
 	params[0] = OSSL_PARAM_construct_utf8_string("group", (char *)"SM2", 0);
@@ -198,12 +199,12 @@ int sm2_verify_builtinkey(const char *msg, size_t msg_len, const char *sig,
 
 	params[2] = OSSL_PARAM_construct_end();
 
-	if (EVP_PKEY_fromdata_init(ctx) <= 0) {
+	if (EVP_PKEY_fromdata_init(fromdata_ctx) <= 0) {
 		ret = -7;
 		goto cleanup;
 	}
 
-	if (EVP_PKEY_fromdata(ctx, &pkey, EVP_PKEY_PUBLIC_KEY, params) <= 0) {
+	if (EVP_PKEY_fromdata(fromdata_ctx, &pkey, EVP_PKEY_PUBLIC_KEY, params) <= 0) {
 		ret = -8;
 		goto cleanup;
 	}
@@ -213,37 +214,43 @@ int sm2_verify_builtinkey(const char *msg, size_t msg_len, const char *sig,
 		goto cleanup;
 	}
 
-	md_ctx = EVP_MD_CTX_new();
-	if (!md_ctx) {
+	/* Use the low-level EVP_PKEY_verify API with an explicit SM3 digest,
+	 * matching sm2_verify() and sm2_sign(). The high-level
+	 * EVP_DigestVerify API derives the SM2 Z-value implicitly and
+	 * produces mutually unverifiable signatures across OpenSSL patch
+	 * releases (3.0.12 vs 3.0.13).
+	 */
+	ret = sm2_msg_digest(msg, msg_len, digest);
+	if (ret)
+		goto cleanup;
+
+	verify_ctx = EVP_PKEY_CTX_new(pkey, NULL);
+	if (!verify_ctx) {
 		ret = -4;
 		goto cleanup;
 	}
 
-	if (EVP_DigestVerifyInit(md_ctx, NULL, EVP_sm3(), NULL, pkey) != 1) {
-		ret = -9;
+	if (EVP_PKEY_verify_init(verify_ctx) <= 0 ||
+	    EVP_PKEY_CTX_set_signature_md(verify_ctx, EVP_sm3()) <= 0) {
+		ret = -5;
 		goto cleanup;
 	}
 
-	int verify_ret = EVP_DigestVerify(md_ctx, (const unsigned char *)sig,
-					  sig_len, (const unsigned char *)msg,
-					  msg_len);
-
-	if (verify_ret == 1)
+	if (EVP_PKEY_verify(verify_ctx, (const unsigned char *)sig,
+			    sig_len, digest, SM2_DIGEST_LEN) == 1)
 		ret = 0;
-	else if (verify_ret == 0)
-		ret = -5;
 	else
 		ret = -6;
 
 cleanup:
-	if (md_ctx)
-		EVP_MD_CTX_free(md_ctx);
+	if (verify_ctx)
+		EVP_PKEY_CTX_free(verify_ctx);
 
 	if (pkey)
 		EVP_PKEY_free(pkey);
 
-	if (ctx)
-		EVP_PKEY_CTX_free(ctx);
+	if (fromdata_ctx)
+		EVP_PKEY_CTX_free(fromdata_ctx);
 
 	return ret;
 }
