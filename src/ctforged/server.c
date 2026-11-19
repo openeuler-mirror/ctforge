@@ -746,44 +746,15 @@ int start_uv_server(struct ctforge_config *daemon_cfg)
 			path, daemon_cfg->control_uid_count,
 			daemon_cfg->control_uid_count == 1 ? "" : "s");
 	} else {
-		char *addr_copy = strdup(listen_addr);
-
-		if (!addr_copy)
-			return -1;
-
-		char *colon = strrchr(addr_copy, ':');
-
-		if (!colon) {
-			free(addr_copy);
-			return -1;
-		}
-		*colon = '\0';
-		int port = atoi(colon + 1);
-
-		if (port <= 0 || port > 65535) {
-			free(addr_copy);
-			return -1;
-		}
-
-		struct sockaddr_in addr;
-
-		r = uv_ip4_addr(addr_copy, port, &addr);
-		if (r == 0) {
-			uv_tcp_init(ctforged_uv_loop, &ctforged_tcp_server);
-			r = uv_tcp_bind(&ctforged_tcp_server,
-					(const struct sockaddr *)&addr, 0);
-			if (r == 0) {
-				r = uv_listen(
-					(uv_stream_t *)&ctforged_tcp_server,
-					128, on_new_connection);
-			}
-		}
-		free(addr_copy);
-		if (r != 0) {
-			pr_err("TCP listen error: %s", uv_strerror(r));
-			return -1;
-		}
-		pr_info("Listening on TCP %s:%d", listen_addr, port);
+		/* The TCP listener has no authentication: any host that
+		 * reaches the port can issue insmod/rmmod/module
+		 * commands. Fail closed instead of exposing an
+		 * unauthenticated root control plane over the network;
+		 * point "listen" at a unix:// socket.
+		 */
+		pr_err("Refusing TCP listener '%s': the control plane has no TCP authentication; configure \"listen\": \"unix://<path>\"",
+		       listen_addr);
+		return -1;
 	}
 
 	return uv_run(ctforged_uv_loop, UV_RUN_DEFAULT);
