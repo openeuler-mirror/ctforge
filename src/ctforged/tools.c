@@ -135,9 +135,9 @@ size_t get_file_size(char *input_file)
 	}
 
 	file_size = ftell(file);
+	fclose(file);
 	if (file_size == -1) {
 		pr_err("Unable to get file size %s", input_file);
-		fclose(file);
 		return -1;
 	}
 	return file_size;
