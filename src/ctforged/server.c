@@ -86,13 +86,22 @@ static void on_client_close(uv_handle_t *handle)
  */
 static void request_close_client(struct ctforge_conn_ctx *ctx)
 {
+	uv_stream_t *stream;
+
 	if (!ctx)
 		return;
 
-	uv_stream_t *stream = (uv_stream_t *)&ctx->stream_handle;
+	stream = (uv_stream_t *)&ctx->stream_handle;
 
-	if (uv_is_active((uv_handle_t *)stream))
-		uv_close((uv_handle_t *)stream, on_client_close);
+	/* Close unconditionally: libuv deactivates a stream before it
+	 * delivers UV_EOF (or a read error) to the read callback, so
+	 * gating on uv_is_active() would skip uv_close() on exactly
+	 * the disconnect path and leak the accepted socket fd -- one
+	 * per RPC client. Each connection reaches this exactly once
+	 * (every caller returns right after), so there is no
+	 * double-close to guard against.
+	 */
+	uv_close((uv_handle_t *)stream, on_client_close);
 }
 
 /**
