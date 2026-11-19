@@ -58,9 +58,26 @@ void ctforged_sig_handler(int sig)
 
 int ctforged_init_signal(void)
 {
-	signal(SIGTERM, ctforged_sig_handler);
+	struct sigaction sa;
+
+	memset(&sa, 0, sizeof(sa));
+	sa.sa_handler = ctforged_sig_handler;
+	sigemptyset(&sa.sa_mask);
+	/* Restart interrupted syscalls so libuv's loop is not disturbed
+	 * by EINTR storms from unrelated signals.
+	 */
+	sa.sa_flags = SA_RESTART;
+
+	if (sigaction(SIGTERM, &sa, NULL) != 0) {
+		pr_err("sigaction(SIGTERM) failed: %s", strerror(errno));
+		return -1;
+	}
 	pr_info("Register SIGTERM handled");
-	signal(SIGINT, ctforged_sig_handler);
+
+	if (sigaction(SIGINT, &sa, NULL) != 0) {
+		pr_err("sigaction(SIGINT) failed: %s", strerror(errno));
+		return -1;
+	}
 	pr_info("Register SIGINT handled");
 	return 0;
 }

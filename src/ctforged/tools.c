@@ -1,4 +1,8 @@
 #include "ctforge.h"
+#include <limits.h>
+#include <linux/bpf.h>
+#include <linux/perf_event.h>
+#include <sys/syscall.h>
 
 int list_empty_careful(const struct list_head *head)
 {
@@ -20,52 +24,6 @@ int update_rlimit(void)
 	return err;
 }
 
-int strnappend(char *str, size_t size, const char *format, ...)
-{
-	va_list args;
-	int written;
-	int length = strlen(str);
-
-	if (length >= size)
-		return length;
-
-	va_start(args, format);
-	written = vsnprintf(str + length, size - length, format, args);
-	va_end(args);
-
-	if (written < 0)
-		return length;
-
-	length += written;
-	if ((size_t)length >= size)
-		length = size - 1;
-
-	return length;
-}
-
-int sk_resappend(struct ctforged_params *s, const char *format, ...)
-{
-	va_list args;
-	int written;
-
-	if (s->res_size >= RESP_LEN_MAX)
-		return s->res_size;
-
-	va_start(args, format);
-	written = vsnprintf(s->res + s->res_size, RESP_LEN_MAX - s->res_size,
-			    format, args);
-	va_end(args);
-
-	if (written < 0)
-		return s->res_size;
-
-	s->res_size += written;
-	if ((size_t)s->res_size >= RESP_LEN_MAX)
-		s->res_size = RESP_LEN_MAX - 1;
-
-	return s->res_size;
-}
-
 void print_arg(int argc, char *argv[])
 {
 	for (int i = 0; i < argc; ++i)
@@ -78,13 +36,13 @@ bool is_ebpf_file(const char *filename)
 
 	if (!file) {
 		pr_err("Unable to open file %s", filename);
-		exit(EXIT_FAILURE);
+		return false;
 	}
 
 	if (fseek(file, 18, SEEK_SET) != 0) {
 		pr_err("File %s fseek failed", filename);
 		fclose(file);
-		exit(EXIT_FAILURE);
+		return false;
 	}
 
 	uint16_t magic;
@@ -92,7 +50,7 @@ bool is_ebpf_file(const char *filename)
 	if (fread(&magic, sizeof(magic), 1, file) != 1) {
 		pr_err("File %s fread failed", filename);
 		fclose(file);
-		exit(EXIT_FAILURE);
+		return false;
 	}
 
 	fclose(file);
@@ -144,7 +102,7 @@ int write2file(char *filename, void *data, int datalen, size_t start)
 	}
 
 	if (fseek(file, start, SEEK_SET) != 0) {
-		pr_err("Unable to seek position %d", start);
+		pr_err("Unable to seek position %zu", start);
 		fclose(file);
 		return -1;
 	}
@@ -243,7 +201,7 @@ bool is_elf_file(const char *filename)
 
 	if (!file) {
 		pr_err("Unable to open file %s", filename);
-		exit(1);
+		return false;
 	}
 
 	// Read the first four bytes to check for ELF magic number
@@ -260,30 +218,6 @@ bool is_elf_file(const char *filename)
 	// Check if it's an ELF file
 	return elf_magic[0] == 0x7f && elf_magic[1] == 'E' &&
 	       elf_magic[2] == 'L' && elf_magic[3] == 'F';
-}
-
-void print_json_pretty(struct json_object *obj, FILE *stream, int indent)
-{
-	if (!obj || !stream) {
-		fprintf(stream, "Error: NULL object or stream\n");
-		return;
-	}
-
-	if (indent <= 0) {
-		fprintf(stream, "%s\n",
-			json_object_to_json_string_ext(obj,
-						       JSON_C_TO_STRING_PLAIN));
-	} else {
-		fprintf(stream, "%s\n",
-			json_object_to_json_string_ext(
-				obj, JSON_C_TO_STRING_SPACED |
-					     JSON_C_TO_STRING_PRETTY));
-	}
-}
-
-void beautify_json(struct json_object *obj)
-{
-	print_json_pretty(obj, stdout, 4);
 }
 
 int gen_timestamp(void)
@@ -303,5 +237,70 @@ ssize_t strscpy(char *dest, const char *src, size_t count)
 	dest[len] = '\0';
 
 	return len;
+}
+
+/*
+ * Attach a tracepoint program to its tracepoint.
+ *
+ * Loader-mode modules use light skeletons, which do not auto-attach
+ * tracepoint programs (the generated attach helper is a no-op for
+ * them). Modules call this helper instead with their program fd.
+ *
+ * Returns the bpf link fd on success (close it to detach) or a
+ * negative errno on failure.
+ */
+int ctforge_attach_tracepoint(int prog_fd, const char *tp_category,
+			      const char *tp_name)
+{
+	union bpf_attr attr = {};
+	struct perf_event_attr pe_attr = {};
+	char path[PATH_MAX];
+	int link_fd, pfd;
+	FILE *f;
+
+	snprintf(path, sizeof(path),
+		 "/sys/kernel/tracing/events/%s/%s/id",
+		 tp_category, tp_name);
+	f = fopen(path, "r");
+	if (!f) {
+		snprintf(path, sizeof(path),
+			 "/sys/kernel/debug/tracing/events/%s/%s/id",
+			 tp_category, tp_name);
+		f = fopen(path, "r");
+	}
+	if (!f) {
+		pr_err("tracepoint %s/%s not found", tp_category, tp_name);
+		return -ENOENT;
+	}
+	if (fscanf(f, "%lld", &pe_attr.config) != 1) {
+		fclose(f);
+		return -ENOENT;
+	}
+	fclose(f);
+
+	pe_attr.type = PERF_TYPE_TRACEPOINT;
+	pe_attr.size = sizeof(pe_attr);
+
+	pfd = syscall(__NR_perf_event_open, &pe_attr,
+		      -1 /* pid */, 0 /* cpu */, -1 /* group_fd */,
+		      PERF_FLAG_FD_CLOEXEC);
+	if (pfd < 0) {
+		pr_err("perf_event_open for tracepoint %s/%s failed: %s",
+		       tp_category, tp_name, strerror(errno));
+		return -errno;
+	}
+
+	attr.link_create.prog_fd = prog_fd;
+	attr.link_create.target_fd = pfd;
+	attr.link_create.attach_type = BPF_PERF_EVENT;
+	link_fd = syscall(__NR_bpf, BPF_LINK_CREATE, &attr, sizeof(attr));
+	close(pfd);
+	if (link_fd < 0) {
+		pr_err("link tracepoint %s/%s failed: %s",
+		       tp_category, tp_name, strerror(errno));
+		return -errno;
+	}
+
+	return link_fd;
 }
 #endif

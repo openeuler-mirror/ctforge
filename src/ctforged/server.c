@@ -307,6 +307,15 @@ void handle_log(struct ctforge_conn_ctx *ctx, json_object *result)
 
 	pr_dbg("find logmap fd=%d", logmap_fd);
 
+	/* A module without a ring buffer returns no logmap fd; fd < 0
+	 * would make ring_buffer__new() fail deep in epoll_ctl with
+	 * EBADF noise. Reject early with a clean error instead.
+	 */
+	if (logmap_fd < 0) {
+		make_err_res(ctx, "log requested but no logmap fd provided");
+		return;
+	}
+
 	struct ctforged_ringbuf r = {
 		.ctx = ctx,
 		.result = result,
@@ -485,7 +494,7 @@ static void do_per_request(struct ctforge_conn_ctx *ctx, const char *client_msg)
 
 	size_t len = strlen(client_msg);
 
-	if (len == 0 || len > 1024) {
+	if (len == 0 || len > RECV_BUFFER_MAX) {
 		pr_err("Invalid message length: %zu", len);
 		send_message_to_client(ctx,
 				       "Invalid Request: message too long");
@@ -509,7 +518,13 @@ static void do_per_request(struct ctforge_conn_ctx *ctx, const char *client_msg)
 	}
 
 	json_object_put(jreq);
-	request_close_client(ctx);
+	/* Keep the connection open: the client may pipeline further
+	 * requests on the same connection, and the log-subscription
+	 * path (handle_log) pushes events back over it. Closing here
+	 * would drop any already-buffered complete lines and break
+	 * the subscription. The connection closes when the peer goes
+	 * away (on_client_read sees UV_EOF).
+	 */
 }
 
 /**
