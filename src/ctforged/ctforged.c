@@ -564,9 +564,14 @@ int ops_events(json_object *reqmsg, json_object **result, void *user_data)
 int jsonrpc_register(const char *method_name, jsonrpc_method_fn fn,
 		     void *user_data)
 {
+	char *name;
+
 	if (ctforged_method_count >= MAX_CTFORGED_METHODS)
 		return -1;
-	method_table[ctforged_method_count].name = strdup(method_name);
+	name = strdup(method_name);
+	if (!name)
+		return -1;
+	method_table[ctforged_method_count].name = name;
 	method_table[ctforged_method_count].fn = fn;
 	method_table[ctforged_method_count].user_data = user_data;
 	ctforged_method_count++;
