@@ -440,6 +440,7 @@ int do_one_rmmod(char *mod_name);
 int do_one_insmod(char *mod_name);
 void *mod_find_sym(struct module_info *mi, char *module_name, char *sym_name);
 int payload_module_dispatch(const char *params, json_object **result);
+int payload_module_list_json(json_object **result);
 
 /* TTL rules (time-limited rules with automatic revert) */
 int ttl_start(void);

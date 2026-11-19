@@ -196,50 +196,14 @@ int ops_lsmod(json_object *reqmsg, json_object **result, void *user_data)
 	if (!json_object_object_get_ex(reqmsg, "params", &msg_obj))
 		return -1;
 
-	struct module_info *iterator;
-	json_object *result_array;
-
-	result_array = json_object_new_array();
-	if (!result_array) {
+	/* The snapshot is built under module_list_lock inside payload.c:
+	 * the restore path runs on a workpool thread and an unlocked
+	 * walk here could race a concurrent list_add/list_del.
+	 */
+	if (payload_module_list_json(result) != 0) {
 		*result = json_object_new_string("server alloc memory failed");
-		return -1;
+		return (*result) ? 0 : -1;
 	}
-
-	if (list_empty(&module_list_head)) {
-		json_object_put(result_array);
-
-		json_object *res = json_object_new_object();
-
-		if (!res) {
-			pr_err("failed to alloc memory");
-			return -1;
-		}
-		json_object_object_add(
-			res, "msg",
-			json_object_new_string("no module insmod!"));
-
-		*result = res;
-		return 0;
-	}
-
-	list_for_each_entry(iterator, &module_list_head, list) {
-		json_object *mod_obj = json_object_new_object();
-
-		if (!mod_obj) {
-			json_object_put(result_array);
-			return -1;
-		}
-
-		json_object_object_add(
-			mod_obj, "name",
-			json_object_new_string(iterator->module_name));
-		json_object_object_add(
-			mod_obj, "path",
-			json_object_new_string(iterator->payload_fullpath));
-
-		json_object_array_add(result_array, mod_obj);
-	}
-	*result = result_array;
 	return 0;
 }
 
