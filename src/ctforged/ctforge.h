@@ -463,7 +463,6 @@ int sm2_verify(const char *msg, size_t msg_len, const char *pubkey_pem_path,
 
 int do_sign_ebpf_section(char *key_path, char *input_file);
 int do_sign(char *key_path, char *input_file);
-int do_verify_ebpf_section_sign(char *key_path, char *input_file);
 int do_verify_sign(char *key_path, char *input_file);
 int do_remove_section(const char *input_filename, const char *section_name);
 int do_remove_ebpf_section_sign(char *input_file);
