@@ -383,10 +383,15 @@ static void on_read(uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf)
 			*newline = '\0';
 			root = json_tokener_parse(line_start);
 			if (!root) {
-				/* if not json format, must be error, just print */
+				/* Not JSON: the daemon answered with a plain
+				 * error line (e.g. 'Method not found'). Print it
+				 * and finish — the daemon no longer closes the
+				 * connection after a request, so waiting for
+				 * more lines would hang forever.
+				 */
 				pr_err("%s", line_start);
-				line_start = newline + 1;
-				continue;
+				uv_close((uv_handle_t *)stream, NULL);
+				break;
 			}
 
 			handle_server_response(root);
