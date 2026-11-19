@@ -262,7 +262,11 @@ static void alloc_buffer(uv_handle_t *handle, size_t suggested_size,
 			 uv_buf_t *buf)
 {
 	buf->base = malloc(suggested_size);
-	buf->len = buf->base ? suggested_size : 0;
+	if (!buf->base) {
+		buf->len = 0;
+		return;
+	}
+	buf->len = suggested_size;
 }
 
 static void on_write(uv_write_t *req, int status)
