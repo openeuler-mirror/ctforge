@@ -269,11 +269,18 @@ void collector_stop(void)
 			close(entries[i].fd);
 	}
 	entry_count = 0;
+	pthread_mutex_unlock(&collector_lock);
+
+	/* events_fp is shared between the event-write path (events_io_lock)
+	 * and this close path, so it must be closed under events_io_lock
+	 * to prevent a use-after-free when a writer is mid-fprintf.
+	 */
+	pthread_mutex_lock(&events_io_lock);
 	if (events_fp) {
 		fclose(events_fp);
 		events_fp = NULL;
 	}
-	pthread_mutex_unlock(&collector_lock);
+	pthread_mutex_unlock(&events_io_lock);
 
 	pr_info("collector: stopped");
 }
@@ -325,6 +332,8 @@ int collector_register(const char *module_name, int logmap_fd)
 void collector_unregister(const char *module_name)
 {
 	int i, j;
+	struct ring_buffer *rb_to_free = NULL;
+	int fd_to_close = -1;
 
 	if (!module_name)
 		return;
@@ -332,19 +341,29 @@ void collector_unregister(const char *module_name)
 	pthread_mutex_lock(&collector_lock);
 	for (i = 0; i < entry_count; i++) {
 		if (strcmp(entries[i].name, module_name) == 0) {
-			if (entries[i].rb)
-				ring_buffer__free(entries[i].rb);
-			if (entries[i].fd >= 0)
-				close(entries[i].fd);
+			rb_to_free = entries[i].rb;
+			fd_to_close = entries[i].fd;
+			entries[i].rb = NULL;
+			entries[i].fd = -1;
 			/* compact the array */
 			for (j = i; j < entry_count - 1; j++)
 				entries[j] = entries[j + 1];
 			entry_count--;
-			pr_info("collector: unregistered %s", module_name);
 			break;
 		}
 	}
 	pthread_mutex_unlock(&collector_lock);
+
+	/* ring_buffer__free() does slow syscalls (epoll_ctl, close) and
+	 * may invoke callbacks; do it outside the lock so other collector
+	 * threads are not blocked.
+	 */
+	if (rb_to_free)
+		ring_buffer__free(rb_to_free);
+	if (fd_to_close >= 0)
+		close(fd_to_close);
+	if (rb_to_free || fd_to_close >= 0)
+		pr_info("collector: unregistered %s", module_name);
 }
 
 int collector_status(json_object **result)
