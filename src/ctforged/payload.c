@@ -451,8 +451,26 @@ static int do_one_insmod_impl(char *module_name)
 				json_object_put(log_result);
 			}
 		}
-		if (logmap_fd >= 0)
-			collector_register(module_name, logmap_fd);
+		/* The fd returned by the module belongs to its skeleton
+		 * (its exit path closes it with the skeleton). Hand a dup
+		 * to the collector instead, so collector_unregister()
+		 * closes its own copy and can never double-close the
+		 * module's fd (or an unrelated fd that re-used the
+		 * number) after the module has been unloaded.
+		 */
+		if (logmap_fd >= 0) {
+			int collector_fd = dup(logmap_fd);
+
+			if (collector_fd < 0) {
+				pr_err("dup logmap fd for %s failed: %s",
+				       module_name, strerror(errno));
+			} else {
+				/* collector_register owns collector_fd from
+				 * here (it closes it on failure)
+				 */
+				collector_register(module_name, collector_fd);
+			}
+		}
 	}
 
 	pr_debug("init module %s success!", module_name);
