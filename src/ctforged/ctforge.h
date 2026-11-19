@@ -403,6 +403,7 @@ int threadpoll_init(void);
 unsigned char *load_file(char *filename, size_t *len);
 int do_verify_ebpf_section_sign(char *key_path, char *input_file);
 int do_verify_tail_sign(char *key_path, char *input_file);
+int do_verify_tail_sign_builtin(char *input_file);
 int do_safty_verify_sign(char *key_path, char *input_file);
 int do_safety_verify_sign_from_mem(const char *public_key_path, const void *buf,
 				   size_t buf_size);
