@@ -394,6 +394,15 @@ static void on_read(uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf)
 
 			json_object_put(root);
 			line_start = newline + 1;
+
+			/* The daemon keeps the connection open for
+			 * pipelining, so the client closes its side once a
+			 * complete JSON-RPC response arrived. Closing the
+			 * stream makes uv_run() return naturally, without
+			 * cutting off pending output the way uv_stop() did.
+			 */
+			uv_close((uv_handle_t *)stream, NULL);
+			break;
 		}
 	} else if (nread < 0) {
 		if (nread != UV_EOF)
