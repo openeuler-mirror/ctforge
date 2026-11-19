@@ -652,5 +652,7 @@ int main(void)
 	jsonrpc_register("show", ops_show, NULL);
 
 	pr_info("Starting server");
-	start_uv_server(&ctforged_config);
+	if (start_uv_server(&ctforged_config) != 0)
+		return 1;
+	return 0;
 }
